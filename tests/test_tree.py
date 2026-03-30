@@ -1,4 +1,4 @@
-from tree import Node, Tree
+from genbart.tree import Node, Tree
 import numpy as np
 
 def test_node_starts_empty():
@@ -79,6 +79,18 @@ def test_swappable_paths():
     swappable_paths = t.swappable_paths()
 
     assert len(swappable_paths) == 2
+
+def test_terminal_nodes():
+    t = Tree(Node.terminal(0.0))
+    t = t.grow(())
+    t = t.grow((0, ))
+    t = t.grow((0, 1))
+
+    terminal_nodes = t.terminal_nodes()
+
+    assert len(terminal_nodes) == 4
+    assert terminal_nodes[0].mu == 0.0
+    assert terminal_nodes[0].variable is None
 
 def test_grow_tree():
     t = Tree(Node.terminal(0.0))

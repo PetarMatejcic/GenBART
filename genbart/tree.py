@@ -2,13 +2,13 @@
 
 This module defines node and tree objects for representing binary regression
 trees used in Bayesian Additive Regression Trees. It includes helpers for
-navigating a tree, applying updates, validating tree shape, and computing 
+navigating a tree, applying updates, validating tree shape, and computing
 predictions.
 """
 from __future__ import annotations
 from dataclasses import dataclass
 
-import random
+
 import numpy as np
 
 
@@ -186,6 +186,30 @@ class Tree:
 
         visit(self.root, ())
         return paths
+    
+    def is_in_path(self, path: tuple, x):
+        x = np.asarray(x)
+
+        current_node = self.root
+        i = 0
+        while current_node.is_internal():
+            if x[current_node.variable] <= current_node.value and path[i] == 1:
+                return False
+            elif x[current_node.variable] <= current_node.value:
+                current_node = current_node.left
+                i = i + 1
+                continue
+            elif x[current_node.variable] > current_node.value and path[i] == 0:
+                return False
+            else:
+                current_node = current_node.right
+                i = i + 1
+        return True
+
+    def terminal_nodes(self):
+        paths = self.terminal_paths()
+        nodes = [self.node_at(path) for path in paths]
+        return nodes
 
     def _depth(self, node: Node):
         """Return the depth of the subtree rooted at ``node``.
@@ -298,7 +322,7 @@ class Tree:
             raise ValueError("Path must point to the child node which is to be swapped.")
         child = self.node_at(path)
         parent = self.node_at(path[:-1])
-        if child.is_terminal() or parent.is_internal():
+        if child.is_terminal():
             raise ValueError("Both parent and child must be internal nodes in order to be swapped.")
         if path[-1] == 0:
             replacement = Node.internal(variable=child.variable,
@@ -348,7 +372,7 @@ class Tree:
             n = X.shape[0]
             y = np.zeros(n)
             for i in range(n):
-                y[i] = self._predict(X[i])
+                y[i] = self._predict(X[i, :])
             return y
         raise ValueError("X must be an array of a 2d-matrix.")
 
