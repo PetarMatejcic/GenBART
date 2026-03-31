@@ -1,6 +1,7 @@
 from genbart.tree import Node, Tree
 import numpy as np
 
+
 def test_node_starts_empty():
     node = Node()
     assert node.left is None
@@ -21,7 +22,10 @@ def test_init_terminal():
 
 
 def test_init_internal():
-    node = Node.internal(variable=1, value=2.0, left_node=Node(), right_node=Node())
+    node = Node.internal(variable=1,
+                         value=2.0,
+                         left_node=Node(),
+                         right_node=Node())
 
     assert node.mu is None
     assert node.left is not None
@@ -33,12 +37,16 @@ def test_init_internal():
 def test_is_terminal_and_is_internal():
     node_t = Node.terminal(1.0)
 
-    node_i = Node.internal(variable=1, value=2.0, left_node=Node(), right_node=Node())
+    node_i = Node.internal(variable=1,
+                           value=2.0,
+                           left_node=Node(),
+                           right_node=Node())
 
     assert node_t.is_terminal() is True
     assert node_t.is_internal() is False
     assert node_i.is_terminal() is False
     assert node_i.is_internal() is True
+
 
 def test_terminal_paths():
     t = Tree(Node.terminal(0.0))
@@ -50,6 +58,7 @@ def test_terminal_paths():
 
     assert len(terminal_paths) == 4
 
+
 def test_internal_paths():
     t = Tree(Node.terminal(0.0))
     t = t.grow(())
@@ -59,6 +68,7 @@ def test_internal_paths():
     internal_paths = t.internal_paths()
 
     assert len(internal_paths) == 3
+
 
 def test_prunable_paths():
     t = Tree(Node.terminal(0.0))
@@ -70,6 +80,7 @@ def test_prunable_paths():
 
     assert len(prunable_paths) == 1
 
+
 def test_swappable_paths():
     t = Tree(Node.terminal(0.0))
     t = t.grow(())
@@ -79,6 +90,7 @@ def test_swappable_paths():
     swappable_paths = t.swappable_paths()
 
     assert len(swappable_paths) == 2
+
 
 def test_terminal_nodes():
     t = Tree(Node.terminal(0.0))
@@ -92,6 +104,7 @@ def test_terminal_nodes():
     assert terminal_nodes[0].mu == 0.0
     assert terminal_nodes[0].variable is None
 
+
 def test_grow_tree():
     t = Tree(Node.terminal(0.0))
     t = t.grow(())
@@ -99,12 +112,13 @@ def test_grow_tree():
     t = t.grow((0, 1))
 
     assert t.node_at(()).is_internal() is True
-    assert t.node_at((0,)).is_internal() is True
-    assert t.node_at((1,)).is_terminal() is True
-    assert t.node_at((0,0)).is_terminal() is True
-    assert t.node_at((0,1)).is_internal() is True
-    assert t.node_at((0,1,0)).is_terminal() is True
-    assert t.node_at((0,1,1)).is_terminal() is True
+    assert t.node_at((0, )).is_internal() is True
+    assert t.node_at((1, )).is_terminal() is True
+    assert t.node_at((0, 0)).is_terminal() is True
+    assert t.node_at((0, 1)).is_internal() is True
+    assert t.node_at((0, 1, 0)).is_terminal() is True
+    assert t.node_at((0, 1, 1)).is_terminal() is True
+
 
 def test_prune_tree():
     t = Tree(Node.terminal(0.0))
@@ -114,10 +128,11 @@ def test_prune_tree():
     t = t.prune((0, 1))
 
     assert t.node_at(()).is_internal() is True
-    assert t.node_at((0,)).is_internal() is True
-    assert t.node_at((1,)).is_terminal() is True
-    assert t.node_at((0,0)).is_terminal() is True
-    assert t.node_at((0,1)).is_terminal() is True
+    assert t.node_at((0, )).is_internal() is True
+    assert t.node_at((1, )).is_terminal() is True
+    assert t.node_at((0, 0)).is_terminal() is True
+    assert t.node_at((0, 1)).is_terminal() is True
+
 
 def test_change_tree():
     t = Tree(Node.terminal(0.0))
@@ -133,6 +148,7 @@ def test_change_tree():
     assert t.root.left is old_root_left
     assert t.root.right is old_root_right
 
+
 def test_swap_tree():
     t = Tree(Node.terminal(0.0))
     t = t.grow((), variable=1, value=2,)
@@ -144,6 +160,7 @@ def test_swap_tree():
     assert t.root.value == 4
     assert t.root.left.variable == 1
     assert t.root.left.value == 2
+
 
 def test_predict():
     t = Tree(Node.terminal(0.0))

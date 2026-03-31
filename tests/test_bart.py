@@ -1,6 +1,7 @@
 import numpy as np
 from genbart.bart import bart
 
+
 def test_loading_data():
     X = np.array([0, 1, 0, 2, 0, 3]).reshape((3, 2,))
     y = np.array([1, 2, 3])

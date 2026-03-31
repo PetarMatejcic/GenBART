@@ -40,7 +40,7 @@ class bart:
                  q=0.90,
                  n_burn=200,
                  n_samples=1000,
-                 move_distribution = [0.25, 0.4, 0.2, 0.15],
+                 move_distribution=[0.25, 0.25, 0.40, 0.10],
                  random_state=None):
         self.m = m
         self.alpha = alpha
@@ -51,10 +51,7 @@ class bart:
         self.n_burn = n_burn
         self.n_samples = n_samples
         self.move_distribution = move_distribution
-        self.rng = np.random.default_rng(seed = random_state)
-    
-    def _inverse_transform_y(self, v: np.ndarray):
-        return (v * self.y_scale) + self.y_shift
+        self.rng = np.random.default_rng(seed=random_state)
 
     def fit(self, X, y):
         # Transforming and storing data.
@@ -74,11 +71,73 @@ class bart:
         self.sigma_mu = 0.5 / (self.k * np.sqrt(self.m))
         # Initializing sigma prior.
         A_sigma = np.column_stack([self.X, np.ones(self.n)])
-        sigma_linalg_beta, _, sigma_linalg_rank, _ = np.linalg.lstsq(A_sigma, self.y)
-        rss = np.sum((self.y - A_sigma @ sigma_linalg_beta)**2)
+        sigma_linalg = np.linalg.lstsq(A_sigma, self.y, rcond=None)
+        rss = np.sum((self.y - A_sigma @ sigma_linalg[0])**2)
         self.sigma = np.sqrt(rss) / (self.n - self.p)
-        self.lambda_ = (self.sigma / self.nu) * chi2.ppf(1 - self.q, df = self.nu)
-        
+        self.lambda_ = (self.sigma / self.nu) * chi2.ppf(1-self.q, df=self.nu)
+
         # Initializing predictions.
         self.training_predicitons = np.zeros((self.n, self.m))
         self.fitted_sums = np.zeros(self.n)
+    
+    def _one_mcmc_iteration(self):
+        for j in range(self.m):
+            self._draw_tree(j)
+        self._draw_sigma()
+    
+    def _draw_tree(self, j: int):
+        move = self.rng.choice(["grow", "prune", "change", "swap"],
+                               p=self.move_distribution)
+        proposed_tree, transition_ratio = self._propose_tree_move(j, move)
+        pass
+
+    def _propose_tree_move(self, j: int, move: str):
+        if move == "grow":
+            possible_paths = self.trees[j].terminal_paths()
+            relevant_data = []
+
+            for path in possible_paths:
+                path_data = []
+                for r in range(self.n):
+                    if self.trees[j].is_in_path(path, self.X[r, :]):
+                        path_data.append(r)
+                relevant_data.append(path_data)
+            data_mask = [len(path_data) > 1 for path_data in relevant_data]
+            possible_paths = [path for path, m in zip(possible_paths, data_mask) if m]
+            relevant_data = [data for data, m in zip(relevant_data, data_mask) if m]
+            
+            value_counts = []
+            for path_data in relevant_data:
+                value_count_dict = {}
+                for var in range(self.p):
+                    value_count_dict[var] = np.unique(self.X[path_data, var])
+                value_counts.append(value_count_dict)
+            data_mask = [any(len(v) > 1 for v in value_dict.values()) for value_dict in value_counts]
+            possible_paths = [path for path, m in zip(possible_paths, data_mask) if m]
+            relevant_data = [data for data, m in zip(relevant_data, data_mask) if m]
+            value_counts = [v for v, m in zip(value_counts, data_mask) if m]
+
+            path_index = self.rng.choice(len(possible_paths))
+            print(type(value_counts[path_index]))
+            possible_variables = [k for k, v in value_counts[path_index].items() if len(v) > 1]
+            variable = self.rng.choice(possible_variables)
+            possible_values = value_counts[path_index][variable]
+            value = self.rng.choice(possible_values[:-1])
+
+            proposed_tree = self.trees[j].grow(path=possible_paths[path_index],
+                                               variable=variable,
+                                               value=value)
+            transition_ratio = (self.move_distribution[0]
+                                * (1.0 / len(possible_paths))
+                                * (1.0 / len(possible_variables))
+                                * (1.0 / len(possible_values[:-1])))
+        else:
+            proposed_tree = 0
+            transition_ratio = 0
+        return proposed_tree, transition_ratio
+
+    def _draw_sigma(self):
+        pass
+
+    def _inverse_transform_y(self, v: np.ndarray):
+        return (v * self.y_scale) + self.y_shift
