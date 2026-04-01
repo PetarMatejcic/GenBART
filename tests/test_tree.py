@@ -183,3 +183,11 @@ def test_predict():
     assert y[1] == 3.0
     assert y[2] == 10.0
     assert y[3] == -1.0
+
+def test_validate():
+    t = Tree(Node.terminal(0.0))
+    t = t.grow((), variable=0, value=1.0)
+    t = t.grow((0,), variable=1, value=-2.0, mu_left=10.0, mu_right=-1.0)
+    t = t.grow((1,), variable=1, value=2.0, mu_left=3.0, mu_right=2.0)
+
+    t._validate()

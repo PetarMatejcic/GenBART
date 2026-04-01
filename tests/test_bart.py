@@ -5,7 +5,7 @@ from genbart.bart import bart
 def test_loading_data():
     X = np.array([0, 1, 0, 2, 0, 3]).reshape((3, 2,))
     y = np.array([1, 2, 3])
-    model = bart()
+    model = bart(n_burn=0, n_samples=0)
 
     model.fit(X, y)
 
@@ -23,3 +23,10 @@ def test_loading_data():
 
     assert len(model.trees) == 200
     assert model.sigma < 1e-15
+
+def test_fit():
+    X = np.array([0, 1, 0, 2, 0, 3]).reshape((3, 2,))
+    y = np.array([1, 2, 3])
+    model = bart(n_burn=1, n_samples=0)
+
+    model.fit(X, y)

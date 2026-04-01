@@ -390,17 +390,18 @@ class Tree:
                     raise ValueError("Terminal node cannot have children.")
                 if node.variable is not None or node.value is not None:
                     raise ValueError("Terminal node cannot have split rule.")
-            if node.is_internal():
+            elif node.is_internal():
                 if node.mu is not None:
                     raise ValueError("Internal node cannot have mu.")
                 if node.left is None or node.right is None:
                     raise ValueError("Internal node must have both children.")
                 if node.variable is None or node.value is None:
                     raise ValueError("Internal node must have split rule.")
+                visit(node.left)
+                visit(node.right)
             else:
                 raise ValueError("Every node must be internal or terminal.")
-            visit(node.left)
-            visit(node.right)
+            
         if self.root is None:
             raise ValueError("Tree must have a root.")
         visit(self.root)
