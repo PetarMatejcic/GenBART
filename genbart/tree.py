@@ -89,6 +89,21 @@ class Node:
                 and self.left is None
                 and self.right is None
                 and self.mu is not None)
+    
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            if self.is_internal():
+                return (other.is_internal()
+                        and self.variable == other.variable
+                        and self.value == other.value)
+            if self.is_terminal():
+                return (other.is_terminal()
+                        and self.mu == other.mu)
+        else:
+            return False
+    
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
 
 class Tree:
@@ -163,11 +178,10 @@ class Tree:
     def swappable_paths(self):
         """Return the paths of internal nodes that can be swapped.
 
-        Each returned path points to a child internal node whose split rule
-        can be exchanged with its parent.
+        Each returned path points to a parent internal node whose split rule
+        can be exchanged with at least one of its children.
         """
         paths = []
-
         def visit(node, path):
             if node.is_terminal():
                 return
@@ -175,11 +189,8 @@ class Tree:
             left_path = path + (0,)
             right_path = path + (1,)
 
-            if node.left.is_internal():
-                paths.append(left_path)
-
-            if node.right.is_internal():
-                paths.append(right_path)
+            if node.left.is_internal() or node.right.is_internal():
+                paths.append(path)
 
             visit(node.left, left_path)
             visit(node.right, right_path)
@@ -324,7 +335,18 @@ class Tree:
         parent = self.node_at(path[:-1])
         if child.is_terminal():
             raise ValueError("Both parent and child must be internal nodes in order to be swapped.")
-        if path[-1] == 0:
+        if parent.left == parent.right:
+            replacement = Node.internal(variable=child.variable,
+                                        value=child.value,
+                                        left_node=Node.internal(parent.variable,
+                                                                parent.value,
+                                                                parent.left.left,
+                                                                parent.left.right),
+                                        right_node=Node.internal(parent.variable,
+                                                                 parent.value,
+                                                                 parent.right.left,
+                                                                 parent.right.right))
+        elif path[-1] == 0:
             replacement = Node.internal(variable=child.variable,
                                         value=child.value,
                                         left_node=Node.internal(parent.variable,
@@ -375,6 +397,32 @@ class Tree:
                 y[i] = self._predict(X[i, :])
             return y
         raise ValueError("X must be an array of a 2d-matrix.")
+
+    def rebuild_data_cache(self,
+                           path: tuple,
+                           rows: list,
+                           X: np.ndarray,
+                           internal_cache: dict,
+                           terminal_cache: dict):
+        node = self.node_at(path)
+        if node.is_terminal():
+            terminal_cache[path] = rows
+            return
+        
+        internal_cache[path] = rows
+
+        rows_l = [r for r in rows if X[r, node.variable] <= node.value]
+        rows_r = [r for r in rows if X[r, node.variable] > node.value]
+        self.rebuild_data_cache(path + (0, ),
+                                rows_l,
+                                X,
+                                internal_cache,
+                                terminal_cache)
+        self.rebuild_data_cache(path + (1, ),
+                                rows_r,
+                                X,
+                                internal_cache,
+                                terminal_cache)
 
     def _validate(self):
         """Check that the tree is structurally valid.
