@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 
 import numpy as np
+from typing import Literal
 
 
 @dataclass
@@ -25,25 +26,29 @@ class Node:
     variable: int | None
     value: float | None
     mu: float | None
+    rows: list[int]
 
     def __init__(self,
                  mu: float | None = None,
                  variable: int | None = None,
                  value: float | None = None,
                  left: "Node | None" = None,
-                 right: "Node | None" = None,):
+                 right: "Node | None" = None,
+                 rows: list[int] | None = None):
         self.mu = mu
         self.variable = variable
         self.value = value
         self.left = left
         self.right = right
+        self.rows = rows
 
     @classmethod
     def internal(cls,
                  variable: int,
                  value: float,
                  left_node: Node,
-                 right_node: Node):
+                 right_node: Node,
+                 rows: list[int]):
         """Create an internal node.
 
         The returned node stores a split rule and references to its left and
@@ -53,15 +58,19 @@ class Node:
                     value=value,
                     left=left_node,
                     right=right_node,
+                    rows=rows,
                     mu=None)
 
     @classmethod
-    def terminal(cls, mu: float):
+    def terminal(cls,
+                 mu: float,
+                 rows: list[int]):
         """Create a terminal node.
 
         The returned node stores ``mu`` value and has no children.
         """
         return Node(mu=mu,
+                    rows=rows,
                     left=None,
                     right=None,
                     variable=None,
@@ -77,7 +86,8 @@ class Node:
                 and self.value is not None
                 and self.left is not None
                 and self.right is not None
-                and self.mu is None)
+                and self.mu is None
+                and self.rows is not None)
 
     def is_terminal(self):
         """Return whether this node is a valid terminal node.
@@ -88,8 +98,9 @@ class Node:
                 and self.value is None
                 and self.left is None
                 and self.right is None
-                and self.mu is not None)
-    
+                and self.mu is not None
+                and self.rows is not None)
+
     def __eq__(self, other):
         if isinstance(other, self.__class__):
             if self.is_internal():
@@ -101,7 +112,7 @@ class Node:
                         and self.mu == other.mu)
         else:
             return False
-    
+
     def __ne__(self, other):
         return not self.__eq__(other)
 
@@ -109,13 +120,21 @@ class Node:
 class Tree:
     """A binary regression tree.
 
-    The tree stores a root node and provides methods for querying structure,
-    replacing subtrees, applying tree modifications, and making predictions.
+    The tree stores a root node and the data associated with the tree,
+    and provides methods for querying structure, replacing subtrees,
+    applying tree modifications, and making predictions.
     """
     root: Node
+    data: np.ndarray
 
-    def __init__(self, root: Node):
-        self.root = root
+    def __init__(self,
+                 root: Node | None = None,
+                 data: np.ndarray | None = None):
+        if root is None:
+            self.root = Node.terminal(0.0, [i for i in range(data.shape[0])])
+        else:
+            self.root = root
+        self.data = data
 
     def node_at(self, path: tuple):
         """Return the node at the given path.
@@ -149,9 +168,10 @@ class Tree:
         self._collect_paths(node.right, current_path + (1,), paths, condition)
 
     def terminal_paths(self):
-        """Return the paths of all terminal nodes in the tree."""
+        """Return the paths of all growable terminal nodes in the tree."""
         paths = []
-        self._collect_paths(self.root, (), paths, lambda x: x.is_terminal())
+        self._collect_paths(self.root, (), paths,
+                            lambda x: x.is_terminal() and len(x.rows) > 1)
         return paths
 
     def internal_paths(self):
@@ -182,6 +202,7 @@ class Tree:
         can be exchanged with at least one of its children.
         """
         paths = []
+
         def visit(node, path):
             if node.is_terminal():
                 return
@@ -197,8 +218,25 @@ class Tree:
 
         visit(self.root, ())
         return paths
-    
+
+    def terminal_nodes(self):
+        """Return a list of terminal nodes.
+        
+        Each element of the list is a reference to a terminal node
+        in the tree.
+        """
+        paths = []
+        self._collect_paths(self.root, (), paths,
+                            lambda x: x.is_terminal())
+        nodes = [self.node_at(path) for path in paths]
+        return nodes
+
+    def get_rows(self, path: tuple):
+        """Return indices of rows of data associated with the node at path."""
+        return self.node_at(path).rows
+
     def is_in_path(self, path: tuple, x):
+        "Return True if data x belongs to path."
         x = np.asarray(x)
 
         current_node = self.root
@@ -217,10 +255,9 @@ class Tree:
                 i = i + 1
         return True
 
-    def terminal_nodes(self):
-        paths = self.terminal_paths()
-        nodes = [self.node_at(path) for path in paths]
-        return nodes
+    def max_depth(self):
+        """Return the maximum depth of the tree."""
+        return self._depth(self.root)
 
     def _depth(self, node: Node):
         """Return the depth of the subtree rooted at ``node``.
@@ -230,12 +267,8 @@ class Tree:
         """
         if node.is_terminal():
             return 0
-        return max(self._depth(node.left),
-                   self._depth(node.right))
-
-    def max_depth(self):
-        """Return the maximum depth of the tree."""
-        return self._depth(self.root)
+        return max(self._depth(node.left) + 1,
+                   self._depth(node.right) + 1)
 
     def _replace_subtree(self, node: Node, path: tuple, replacement: Tree):
         """Return a copy of a subtree with one branch replaced.
@@ -260,7 +293,8 @@ class Tree:
             return Node.internal(variable=node.variable,
                                  value=node.value,
                                  left_node=new_left,
-                                 right_node=node.right)
+                                 right_node=node.right,
+                                 rows=node.rows)
         elif direction == 1:
             if node.right is None:
                 raise ValueError
@@ -269,16 +303,15 @@ class Tree:
             return Node.internal(variable=node.variable,
                                  value=node.value,
                                  left_node=node.left,
-                                 right_node=new_right)
+                                 right_node=new_right,
+                                 rows=node.rows)
         else:
             raise ValueError
 
     def grow(self,
              path: tuple,
              variable=0,
-             value=0,
-             mu_left=0.0,
-             mu_right=0.0):
+             value=0):
         """Return a new tree with a terminal node split into two children.
 
         The node at ``path`` must be terminal. It is replaced by an internal
@@ -286,12 +319,18 @@ class Tree:
         """
         if self.node_at(path).is_internal():
             raise ValueError("Cannot grow on an internal node.")
+        rows = self.get_rows(path)
+        rows_l = [r for r in rows if self.data[r, variable] <= value]
+        rows_r = [r for r in rows if self.data[r, variable] > value]
         replacement = Node.internal(variable=variable,
                                     value=value,
-                                    left_node=Node.terminal(mu_left),
-                                    right_node=Node.terminal(mu_right))
+                                    left_node=Node.terminal(0.0,
+                                                            rows_l),
+                                    right_node=Node.terminal(0.0,
+                                                             rows_r),
+                                    rows=rows)
         new_root = self._replace_subtree(self.root, path, replacement)
-        return Tree(new_root)
+        return Tree(new_root, self.data)
 
     def prune(self, path: tuple, mu=0.0):
         """Return a new tree with a subtree collapsed into a terminal node.
@@ -301,9 +340,9 @@ class Tree:
         """
         if self.node_at(path).is_terminal():
             raise ValueError("Cannot prune an internal node.")
-        replacement = Node.terminal(mu)
+        replacement = Node.terminal(mu, self.get_rows(path))
         new_root = self._replace_subtree(self.root, path, replacement)
-        return Tree(new_root)
+        return Tree(new_root, self.data)
 
     def change(self, path: tuple, variable=0, value=0):
         """Return a new tree with an updated split rule.
@@ -311,59 +350,69 @@ class Tree:
         The node at ``path`` must be internal. Its children are kept, but its
         split variable and split value are replaced.
         """
-        if self.node_at(path).is_terminal():
-            raise ValueError("Cannot change split rule of a terminal node.")
         old_node = self.node_at(path)
         if old_node.is_terminal():
-            raise ValueError
+            raise ValueError("Cannot change split rule of a terminal node.")
         replacement = Node.internal(variable=variable,
                                     value=value,
                                     left_node=old_node.left,
-                                    right_node=old_node.right)
+                                    right_node=old_node.right,
+                                    rows=old_node.rows)
+        replacement = self._update_data_rows(replacement)
         new_root = self._replace_subtree(self.root, path, replacement)
-        return Tree(new_root)
+        return Tree(new_root, self.data)
 
-    def swap(self, path: tuple):
+    def swap(self, path: tuple, swap=Literal["left", "right", "both"]):
         """Return a new tree with a parent-child split swap applied.
 
-        The path must point to an internal child node. The split rule at that
-        child is exchanged with the split rule at its parent.
+        The path must point to an internal parent node. The split rule at that
+        parent is exchanged with the split rule at its child(ren).
         """
-        if path == ():
-            raise ValueError("Path must point to the child node which is to be swapped.")
-        child = self.node_at(path)
-        parent = self.node_at(path[:-1])
-        if child.is_terminal():
-            raise ValueError("Both parent and child must be internal nodes in order to be swapped.")
-        if parent.left == parent.right:
-            replacement = Node.internal(variable=child.variable,
-                                        value=child.value,
-                                        left_node=Node.internal(parent.variable,
-                                                                parent.value,
-                                                                parent.left.left,
-                                                                parent.left.right),
-                                        right_node=Node.internal(parent.variable,
-                                                                 parent.value,
-                                                                 parent.right.left,
-                                                                 parent.right.right))
-        elif path[-1] == 0:
+        parent = self.node_at(path)
+        if parent.is_terminal():
+            raise ValueError("Path must point to the parent node which is to be swapped.")
+        if swap == "left":
+            child = self.node_at(path + (0, ))
             replacement = Node.internal(variable=child.variable,
                                         value=child.value,
                                         left_node=Node.internal(parent.variable,
                                                                 parent.value,
                                                                 child.left,
-                                                                child.right),
-                                        right_node=parent.right)
-        else:
+                                                                child.right,
+                                                                []),
+                                        right_node=parent.right,
+                                        rows=parent.rows)
+        elif swap == "right":
+            child = self.node_at(path + (1, ))
             replacement = Node.internal(variable=child.variable,
                                         value=child.value,
                                         left_node=parent.left,
                                         right_node=Node.internal(parent.variable,
                                                                  parent.value,
                                                                  child.left,
-                                                                 child.right))
-        new_root = self._replace_subtree(self.root, path[:-1], replacement)
-        return Tree(new_root)
+                                                                 child.right,
+                                                                 child.rows),
+                                        rows=parent.rows)
+        else:
+            child_l = self.node_at(path + (0, ))
+            child_r = self.node_at(path + (1, ))
+            replacement = Node.internal(variable=child_l.variable,
+                                        value=child_l.value,
+                                        left_node=Node.internal(parent.variable,
+                                                                parent.value,
+                                                                child_l.left,
+                                                                child_l.right,
+                                                                child_l.rows),
+                                        right_node=Node.internal(parent.variable,
+                                                                 parent.value,
+                                                                 child_r.left,
+                                                                 child_r.right,
+                                                                 child_r.rows),
+                                        rows=parent.rows)
+
+        replacement = self._update_data_rows(replacement)
+        new_root = self._replace_subtree(self.root, path, replacement)
+        return Tree(new_root, self.data)
 
     def _predict(self, x):
         """Return the prediction for a single input vector.
@@ -398,31 +447,40 @@ class Tree:
             return y
         raise ValueError("X must be an array of a 2d-matrix.")
 
-    def rebuild_data_cache(self,
-                           path: tuple,
-                           rows: list,
-                           X: np.ndarray,
-                           internal_cache: dict,
-                           terminal_cache: dict):
-        node = self.node_at(path)
-        if node.is_terminal():
-            terminal_cache[path] = rows
-            return
-        
-        internal_cache[path] = rows
+    def _update_data_rows(self, node: Node):
+        """Return a subtree with data rows updated.
 
-        rows_l = [r for r in rows if X[r, node.variable] <= node.value]
-        rows_r = [r for r in rows if X[r, node.variable] > node.value]
-        self.rebuild_data_cache(path + (0, ),
-                                rows_l,
-                                X,
-                                internal_cache,
-                                terminal_cache)
-        self.rebuild_data_cache(path + (1, ),
-                                rows_r,
-                                X,
-                                internal_cache,
-                                terminal_cache)
+        Data rows are updated recursevly from node downwards. Used
+        for calculating replacement trees in change and swap functions.
+        """
+        if node.is_terminal():
+            return node
+
+        variable = node.variable
+        value = node.value
+        rows_l = [r for r in node.rows if self.data[r, variable] <= value]
+        if node.left.is_terminal():
+            node_l = Node.terminal(node.left.mu, rows_l)
+        else:
+            node_l = Node.internal(node.left.variable,
+                                   node.left.value,
+                                   node.left.left,
+                                   node.left.right,
+                                   rows_l)
+        rows_r = [r for r in node.rows if self.data[r, variable] > value]
+        if node.right.is_terminal():
+            node_r = Node.terminal(node.right.mu, rows_r)
+        else:
+            node_r = Node.internal(node.right.variable,
+                                   node.right.value,
+                                   node.right.left,
+                                   node.right.right,
+                                   rows_r)
+        return Node.internal(variable=variable,
+                             value=value,
+                             left_node=self._update_data_rows(node_l),
+                             right_node=self._update_data_rows(node_r),
+                             rows=node.rows)
 
     def _validate(self):
         """Check that the tree is structurally valid.
@@ -449,33 +507,114 @@ class Tree:
                 visit(node.right)
             else:
                 raise ValueError("Every node must be internal or terminal.")
-            
+
         if self.root is None:
             raise ValueError("Tree must have a root.")
         visit(self.root)
 
-    def _draw(self) -> str:
-        """Return a string representation of the tree.
+    def _draw(self, show_rows: bool = True) -> str:
+        """Return a compact top-down string representation of the tree.
 
-        Internal nodes are shown by their split rules, and terminal nodes are
-        shown by their leaf values.
+        Internal nodes are shown as ``x{variable}<={value}``.
+        Terminal nodes are shown as ``mu={value}``.
+
+        If ``show_rows`` is True, the row indices are printed on a second line
+        under the node label.
         """
-        def visit(node, prefix="", is_last=True):
-            if node.is_terminal():
-                label = f"{node.mu}"
+        def fmt_num(x):
+            return f"{x:g}"
+
+        def fmt_rows(rows, max_items=4):
+            if rows is None:
+                return ""
+            if len(rows) <= max_items + 1:
+                body = ", ".join(str(r) for r in rows)
             else:
-                label = f"x{node.variable} <= {node.value}"
+                body = ", ".join(str(r) for r in rows[:max_items])
+                body += f", ..., {rows[-1]}"
+            return f"r=[{body}]"
 
-            lines = [prefix + ("└─ " if prefix else "") + label]
+        def node_lines(node):
+            if node.is_terminal():
+                lines = [f"mu={fmt_num(node.mu)}"]
+            else:
+                lines = [f"x{node.variable}<={fmt_num(node.value)}"]
 
-            if not node.is_terminal():
-                child_prefix = prefix + ("   " if is_last else "│  ")
-                lines += visit(node.left, child_prefix, False)
-                lines += visit(node.right, child_prefix, True)
+            if show_rows:
+                row_text = fmt_rows(node.rows)
+                if row_text:
+                    lines.append(row_text)
 
-            return lines
-        return "\n".join(visit(self.root))
+            width = max(len(line) for line in lines)
+            return [line.center(width) for line in lines], width
 
-    def show(self) -> None:
-        """Print a readable representation of the tree."""
-        print(self._draw())
+        def pad_lines(lines, width, height):
+            out = [line.ljust(width) for line in lines]
+            while len(out) < height:
+                out.append(" " * width)
+            return out
+
+        def build(node):
+            label, label_width = node_lines(node)
+
+            if node.is_terminal():
+                root = label_width // 2
+                return label, label_width, root
+
+            left_lines, left_width, left_root = build(node.left)
+            right_lines, right_width, right_root = build(node.right)
+
+            gap = 3
+            children_width = left_width + gap + right_width
+            total_width = max(label_width, children_width)
+
+            if total_width == children_width:
+                label_start = (total_width - label_width) // 2
+                left_start = 0
+            else:
+                label_start = 0
+                left_start = (total_width - children_width) // 2
+
+            right_start = left_start + left_width + gap
+            root = label_start + label_width // 2
+            left_child = left_start + left_root
+            right_child = right_start + right_root
+
+            top = []
+            for line in label:
+                top.append(
+                    " " * label_start
+                    + line
+                    + " " * (total_width - label_start - len(line))
+                )
+
+            # only show the branch endpoints, no horizontal connector line
+            branch = [" "] * total_width
+            if left_child != root:
+                branch[left_child] = "/"
+            if right_child != root:
+                branch[right_child] = "\\"
+            branch_line = "".join(branch)
+
+            child_height = max(len(left_lines), len(right_lines))
+            left_lines = pad_lines(left_lines, left_width, child_height)
+            right_lines = pad_lines(right_lines, right_width, child_height)
+
+            merged = []
+            for left, right in zip(left_lines, right_lines):
+                merged.append(
+                    " " * left_start
+                    + left
+                    + " " * gap
+                    + right
+                    + " " * (total_width - right_start - right_width)
+                )
+
+            return top + [branch_line] + merged, total_width, root
+
+        lines, _, _ = build(self.root)
+        return "\n".join(line.rstrip() for line in lines)
+
+    def show(self, show_rows: bool = True) -> None:
+        """Print a readable top-down representation of the tree."""
+        print(self._draw(show_rows=show_rows))
