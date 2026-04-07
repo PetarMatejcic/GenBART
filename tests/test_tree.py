@@ -9,10 +9,10 @@ def fixed_test_tree():
     node2_1 = Node.terminal(0.0, [2])
     node2_2 = Node.terminal(0.0, [3])
     node2 = Node.internal(variable=0,
-                            value=0.0,
-                            left_node=node2_1,
-                            right_node=node2_2,
-                            rows=[2, 3])
+                          value=0.0,
+                          left_node=node2_1,
+                          right_node=node2_2,
+                          rows=[2, 3])
     node3_1 = Node.internal(variable=0,
                             value=0.0,
                             left_node=node1,
@@ -20,10 +20,10 @@ def fixed_test_tree():
                             rows=[0, 1, 2, 3])
     node3_2 = Node.terminal(0.0, [4, 5])
     root = Node.internal(variable=0,
-                            value=0.0,
-                            left_node=node3_1,
-                            right_node=node3_2,
-                            rows=[0, 1, 2, 3, 4, 5])
+                         value=0.0,
+                         left_node=node3_1,
+                         right_node=node3_2,
+                         rows=[0, 1, 2, 3, 4, 5])
     return Tree(root, np.array([0]))
 
 
@@ -33,9 +33,9 @@ def tiny_data():
         [-3.0, -2.0],
         [-2.0, -1.0],
         [-1.0,  0.0],
-        [ 1.0,  1.0],
-        [ 2.0,  2.0],
-        [ 3.0,  2.0]
+        [1.0,  1.0],
+        [2.0,  2.0],
+        [3.0,  2.0]
     ])
     y = np.array([-2.0, -1.0, -0.5, 0.5, 1.0, 2.0])
     return X, y
@@ -67,7 +67,7 @@ def test_init_internal():
                          value=2.0,
                          left_node=Node(),
                          right_node=Node(),
-                         rows = [0, 1])
+                         rows=[0, 1])
 
     assert node.variable == 1
     assert node.value == 2.0
@@ -94,17 +94,21 @@ def test_is_terminal_and_is_internal():
 def test_terminal_paths(fixed_test_tree):
     t = fixed_test_tree
 
-    terminal_paths = t.terminal_paths()
-
-    assert len(terminal_paths) == 2
+    assert len(t.terminal_paths()) == 2
+    assert len(t.terminal_paths(())) == 2
+    assert len(t.terminal_paths((), False)) == 4
+    assert len(t.terminal_paths((1, ))) == 1
+    assert len(t.terminal_paths((1, ), False)) == 1
+    assert t.terminal_paths((1, ), False)[0] == (1, )
 
 
 def test_internal_paths(fixed_test_tree):
     t = fixed_test_tree
 
-    internal_paths = t.internal_paths()
-
-    assert len(internal_paths) == 3
+    assert len(t.internal_paths()) == 3
+    assert len(t.internal_paths(())) == 3
+    assert len(t.internal_paths((0, ))) == 2
+    assert len(t.internal_paths((1, ))) == 0
 
 
 def test_prunable_paths(fixed_test_tree):
@@ -232,6 +236,7 @@ def test_predict(tiny_data):
     assert y_pred[3] == y[3]
     assert y_pred[4] == y[4]
     assert y_pred[5] == y[5]
+
 
 def test_validate(tiny_data):
     X, y = tiny_data

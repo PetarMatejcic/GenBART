@@ -167,17 +167,23 @@ class Tree:
         self._collect_paths(node.left, current_path + (0,), paths, condition)
         self._collect_paths(node.right, current_path + (1,), paths, condition)
 
-    def terminal_paths(self):
-        """Return the paths of all growable terminal nodes in the tree."""
+    def terminal_paths(self, root_path=(), growable=True):
+        """Return the paths of all (growable) terminal nodes in the tree."""
+        root = self.node_at(root_path)
         paths = []
-        self._collect_paths(self.root, (), paths,
-                            lambda x: x.is_terminal() and len(x.rows) > 1)
+        if growable:
+            self._collect_paths(root, root_path, paths,
+                                lambda x: x.is_terminal() and len(x.rows) > 1)
+        else:
+            self._collect_paths(root, root_path, paths,
+                                lambda x: x.is_terminal())
         return paths
 
-    def internal_paths(self):
+    def internal_paths(self, root_path=()):
         """Return the paths of all internal nodes in the tree."""
+        root = self.node_at(root_path)
         paths = []
-        self._collect_paths(self.root, (), paths, lambda x: x.is_internal())
+        self._collect_paths(root, root_path, paths, lambda x: x.is_internal())
         return paths
 
     def prunable_paths(self):
@@ -221,7 +227,7 @@ class Tree:
 
     def terminal_nodes(self):
         """Return a list of terminal nodes.
-        
+
         Each element of the list is a reference to a terminal node
         in the tree.
         """
@@ -270,7 +276,7 @@ class Tree:
         return max(self._depth(node.left) + 1,
                    self._depth(node.right) + 1)
 
-    def _replace_subtree(self, node: Node, path: tuple, replacement: Tree):
+    def _replace_subtree(self, node: Node, path: tuple, replacement: Node):
         """Return a copy of a subtree with one branch replaced.
 
         The subtree rooted at ``node`` is copied recursively, and the subtree
