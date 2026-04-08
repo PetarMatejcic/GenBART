@@ -99,20 +99,27 @@ class bart:
                                      "sigma2": self.sigma2})
         return self
 
-    def predict(self, X):
-        X = np.asarray(X)
-        if X.ndim == 1:
+    def predict(self, X, level: float = 0.90):
+        data = np.asarray(X)
+        a = 1 - level
+        if data.ndim == 1 and self.p > 1:
             predictions = np.zeros(self.n_samples)
             for i in range(self.n_samples):
                 for j in range(self.m):
-                    predictions[i] += self.tree_sample[i]["sample"][j].predict(X)
-            return self._inverse_transform_y(predictions.mean())
+                    predictions[i] += self.tree_sample[i]["sample"][j].predict(data)
+            conf_int = np.quantile(predictions, [a/2.0, 1 - a/2.0])
+            return (self._inverse_transform_y(predictions.mean()),
+                    tuple(self._inverse_transform_y(conf_int)))
         else:
+            if data.ndim == 1:
+                data = data.reshape((-1, 1))
             predictions = np.zeros((X.shape[0], self.n_samples))
             for i in range(self.n_samples):
                 for j in range(self.m):
-                    predictions[:, i] += self.tree_sample[i]["sample"][j].predict(X)
-            return self._inverse_transform_y(predictions.mean(axis=1))
+                    predictions[:, i] += self.tree_sample[i]["sample"][j].predict(data)
+            conf_ints = np.quantile(predictions, [a/2.0, 1 - a/2.0], axis=1)
+            return (self._inverse_transform_y(predictions.mean(axis=1)),
+                    self._inverse_transform_y(conf_ints))
 
     def _one_mcmc_iteration(self):
         for j in range(self.m):
