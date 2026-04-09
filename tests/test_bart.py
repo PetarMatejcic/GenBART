@@ -38,15 +38,15 @@ def test_tree_grow_change_and_swap_keep_row_bookkeeping_consistent():
     )
 
     tree = Tree(data=X)
-    tree = tree.grow((), variable=0, value=0.50)
-    tree = tree.change((), variable=1, value=0.50)
+    tree.replace_subtree((), tree.grow((), variable=0, value=0.50))
+    tree.replace_subtree((), tree.change((), variable=1, value=0.50))
     _assert_partition(tree)
 
-    tree = tree.grow((0,), variable=0, value=0.15)
-    tree = tree.grow((1,), variable=0, value=0.80)
+    tree.replace_subtree((0, ), tree.grow((0,), variable=0, value=0.15))
+    tree.replace_subtree((1, ), tree.grow((1,), variable=0, value=0.80))
     _assert_partition(tree)
 
-    swapped = tree.swap((), swap="left")
+    swapped = tree.replace_subtree((), tree.swap((), swap="left"))
     _assert_partition(swapped)
     swapped._validate()
 
@@ -143,17 +143,16 @@ def test_change_proposal_runs_without_type_errors_on_internal_tree():
 
 def test_bart_gives_reasonable_predictions_on_simple_step_data():
     x = np.linspace(0.0, 1.0, 40)
-    X = x.reshape(-1, 1)
     y = np.where(x <= 0.5, -1.0, 1.0)
 
     model = bart(m=20, n_burn=60, n_samples=120, random_state=123)
-    model.fit(X, y)
+    model.fit(x, y)
 
-    train_pred = model.predict(X)
+    train_pred = model.predict(x)[0]
     rmse = np.sqrt(np.mean((train_pred - y) ** 2))
 
-    left_pred = model.predict(np.array([0.20]))
-    right_pred = model.predict(np.array([0.80]))
+    left_pred = model.predict(np.array([0.20]))[0]
+    right_pred = model.predict(np.array([0.80]))[0]
 
     assert rmse < 0.35
     assert left_pred < -0.30

@@ -276,43 +276,21 @@ class Tree:
         return max(self._depth(node.left) + 1,
                    self._depth(node.right) + 1)
 
-    def _replace_subtree(self, node: Node, path: tuple, replacement: Node):
+    def replace_subtree(self, path: tuple, replacement: Tree, node: Node = None):
         """Return a copy of a subtree with one branch replaced.
 
         The subtree rooted at ``node`` is copied recursively, and the subtree
         at ``path`` is replaced with ``replacement``.
         """
         if len(path) == 0:
-            return replacement
-
-        if node.is_terminal():
-            raise ValueError
-
-        direction = path[0]
-        rest = path[1:]
-
-        if direction == 0:
-            if node.left is None:
-                raise ValueError
-            new_left = self._replace_subtree(node.left, rest, replacement)
-
-            return Node.internal(variable=node.variable,
-                                 value=node.value,
-                                 left_node=new_left,
-                                 right_node=node.right,
-                                 rows=node.rows)
-        elif direction == 1:
-            if node.right is None:
-                raise ValueError
-            new_right = self._replace_subtree(node.right, rest, replacement)
-
-            return Node.internal(variable=node.variable,
-                                 value=node.value,
-                                 left_node=node.left,
-                                 right_node=new_right,
-                                 rows=node.rows)
+            self.root = replacement.root
         else:
-            raise ValueError
+            parent = self.node_at(path[:-1])
+            if path[-1] == 0:
+                parent.left = replacement.root
+            else:
+                parent.right = replacement.root
+        return self
 
     def grow(self,
              path: tuple,
@@ -335,8 +313,7 @@ class Tree:
                                     right_node=Node.terminal(0.0,
                                                              rows_r),
                                     rows=rows)
-        new_root = self._replace_subtree(self.root, path, replacement)
-        return Tree(new_root, self.data)
+        return Tree(replacement, self.data)
 
     def prune(self, path: tuple, mu=0.0):
         """Return a new tree with a subtree collapsed into a terminal node.
@@ -347,8 +324,7 @@ class Tree:
         if self.node_at(path).is_terminal():
             raise ValueError("Cannot prune an internal node.")
         replacement = Node.terminal(mu, self.get_rows(path))
-        new_root = self._replace_subtree(self.root, path, replacement)
-        return Tree(new_root, self.data)
+        return Tree(replacement, self.data)
 
     def change(self, path: tuple, variable=0, value=0):
         """Return a new tree with an updated split rule.
@@ -365,8 +341,7 @@ class Tree:
                                     right_node=old_node.right,
                                     rows=old_node.rows)
         replacement = self._update_data_rows(replacement)
-        new_root = self._replace_subtree(self.root, path, replacement)
-        return Tree(new_root, self.data)
+        return Tree(replacement, self.data)
 
     def swap(self, path: tuple, swap=Literal["left", "right", "both"]):
         """Return a new tree with a parent-child split swap applied.
@@ -417,8 +392,7 @@ class Tree:
                                         rows=parent.rows)
 
         replacement = self._update_data_rows(replacement)
-        new_root = self._replace_subtree(self.root, path, replacement)
-        return Tree(new_root, self.data)
+        return Tree(replacement, self.data)
 
     def _predict(self, x):
         """Return the prediction for a single input vector.

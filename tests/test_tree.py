@@ -153,8 +153,8 @@ def test_get_rows(fixed_test_tree):
 def test_grow_tree(tiny_data):
     X, y = tiny_data
     t = Tree(data=X)
-    t = t.grow((), 0, -1.0)
-    t = t.grow((0, ), 1, -1.0)
+    t.replace_subtree((), t.grow((), 0, -1.0))
+    t.replace_subtree((0, ), t.grow((0, ), 1, -1.0))
 
     assert t.node_at(()).is_internal() is True
     assert t.node_at((0, )).is_internal() is True
@@ -168,9 +168,9 @@ def test_grow_tree(tiny_data):
 def test_prune_tree(tiny_data):
     X, _ = tiny_data
     t = Tree(data=X)
-    t = t.grow((), 0, -1.0)
-    t = t.grow((0, ), 1, -1.0)
-    t = t.prune((0, ))
+    t.replace_subtree((), t.grow((), 0, -1.0))
+    t.replace_subtree((0, ), t.grow((0, ), 1, -1.0))
+    t.replace_subtree((0,), t.prune((0, )))
 
     assert t.node_at(()).is_internal() is True
     assert t.node_at((0, )).is_terminal() is True
@@ -183,9 +183,9 @@ def test_prune_tree(tiny_data):
 def test_change_tree(tiny_data):
     X, _ = tiny_data
     t = Tree(data=X)
-    t = t.grow((), 0, -1.0)
-    t = t.grow((0, ), 1, -1.0)
-    t = t.change((), 0, 1.0)
+    t.replace_subtree((), t.grow((), 0, -1.0))
+    t.replace_subtree((0, ), t.grow((0, ), 1, -1.0))
+    t.replace_subtree((), t.change((), 0, 1.0))
 
     assert t.root.variable == 0
     assert t.root.value == 1.0
@@ -198,9 +198,9 @@ def test_change_tree(tiny_data):
 def test_swap_tree(tiny_data):
     X, _ = tiny_data
     t = Tree(data=X)
-    t = t.grow((), 0, -1.0)
-    t = t.grow((0, ), 1, -1.0)
-    t = t.swap((), "left")
+    t.replace_subtree((), t.grow((), 0, -1.0))
+    t.replace_subtree((0, ), t.grow((0, ), 1, -1.0))
+    t.replace_subtree((), t.swap((), "left"))
 
     assert t.root.variable == 1
     assert t.root.value == -1.0
@@ -216,11 +216,11 @@ def test_swap_tree(tiny_data):
 def test_predict(tiny_data):
     X, y = tiny_data
     t = Tree(data=X)
-    t = t.grow((), 0, -1.0)
-    t = t.grow((0, ), 1, -1.0)
-    t = t.grow((0, 0), 1, -2.0)
-    t = t.grow((1,), 1, 1.0)
-    t = t.grow((1, 1), 0, 2.0)
+    t.replace_subtree((), t.grow((), 0, -1.0))
+    t.replace_subtree((0, ), t.grow((0, ), 1, -1.0))
+    t.replace_subtree((0, 0), t.grow((0, 0), 1, -2.0))
+    t.replace_subtree((1, ), t.grow((1, ), 1, 1.0))
+    t.replace_subtree((1, 1), t.grow((1, 1), 0, 2.0))
     terminal_nodes = t.terminal_nodes()
     terminal_nodes[0].mu = -2.0
     terminal_nodes[1].mu = -1.0

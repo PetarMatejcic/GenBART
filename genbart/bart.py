@@ -132,22 +132,22 @@ class bart:
         move = self.rng.choice(["grow", "prune", "change", "swap"],
                                p=self.move_distribution)
         if move == "grow":
-            proposed_tree, mh_ratio, old_path = self._propose_tree_grow(j)
+            proposed_subtree, mh_ratio, old_path = self._propose_tree_grow(j)
         elif move == "prune":
-            proposed_tree, mh_ratio, old_path = self._propose_tree_prune(j)
+            proposed_subtree, mh_ratio, old_path = self._propose_tree_prune(j)
         elif move == "change":
-            proposed_tree, mh_ratio, old_path = self._propose_tree_change(j)
+            proposed_subtree, mh_ratio, old_path = self._propose_tree_change(j)
         elif move == "swap":
-            proposed_tree, mh_ratio, old_path = self._propose_tree_swap(j)
+            proposed_subtree, mh_ratio, old_path = self._propose_tree_swap(j)
         else:
             return
 
-        if proposed_tree is None:
+        if proposed_subtree is None:
             return
 
         u = np.log(self.rng.uniform())
         if u < min(0.0, mh_ratio):
-            self.trees[j] = proposed_tree
+            self.trees[j].replace_subtree(old_path, proposed_subtree)
 
     def _propose_tree_grow(self, j: int):
         possible_paths = self.trees[j].terminal_paths()
@@ -167,7 +167,7 @@ class bart:
         eta_ = len(value_counts[variable]) - 1
         value = value_counts[variable][self.rng.choice(eta_)]
 
-        proposed_tree = self.trees[j].grow(path=path,
+        proposed_subtree = self.trees[j].grow(path=path,
                                            variable=variable,
                                            value=value)
         log_transition_ratio = (np.log(self.move_distribution[1])
@@ -175,11 +175,11 @@ class bart:
                                 + np.log(b_)
                                 + np.log(eta_)
                                 - np.log(self.move_distribution[0])
-                                - np.log(len(proposed_tree.prunable_paths())))
+                                - np.log(max(1, len(self.trees[j].prunable_paths()))))
 
-        rows_l = [r for r in proposed_tree.get_rows(path + (0,))
+        rows_l = [r for r in proposed_subtree.get_rows((0,))
                   if self.X[r, variable] <= value]
-        rows_r = [r for r in proposed_tree.get_rows(path + (1, ))
+        rows_r = [r for r in proposed_subtree.get_rows((1, ))
                   if self.X[r, variable] > value]
         log_likelihood_ratio = self._log_likelihood(j,
                                                     [rows_l, rows_r],
@@ -195,7 +195,7 @@ class bart:
         mh_ratio = (log_transition_ratio
                     + log_likelihood_ratio
                     + log_tree_ratio)
-        return proposed_tree, mh_ratio, path
+        return proposed_subtree, mh_ratio, path
 
     def _propose_tree_prune(self, j: int):
         possible_paths = self.trees[j].prunable_paths()
@@ -206,8 +206,11 @@ class bart:
         rows_l = self.trees[j].get_rows(path + (0, ))
         rows_r = self.trees[j].get_rows(path + (1, ))
         old_variable = self.trees[j].node_at(path).variable
-        proposed_tree = self.trees[j].prune(path)
-        b_ = len(proposed_tree.terminal_paths())
+        proposed_subtree = self.trees[j].prune(path)
+        b_ = (len(self.trees[j].terminal_paths())
+              - (len(rows_l) > 1)
+              - (len(rows_r) > 2)
+              + 1)
         value_count_dict = {}
         for var in range(self.p):
             value_count_dict[var] = np.unique(self.X[rows, var])
@@ -238,7 +241,7 @@ class bart:
         mh_ratio = (log_transition_ratio
                     + log_likelihood_ratio
                     + log_tree_ratio)
-        return proposed_tree, mh_ratio, path
+        return proposed_subtree, mh_ratio, path
 
     def _propose_tree_change(self, j: int):
         possible_paths = self.trees[j].internal_paths()
@@ -255,29 +258,29 @@ class bart:
 
         new_variable, new_value = self.rng.choice(splitting_rules)
         new_variable = int(new_variable)
-        proposed_tree = self.trees[j].change(path, new_variable, new_value)
+        proposed_subtree = self.trees[j].change(path, new_variable, new_value)
 
-        prop_tree_terminals = [proposed_tree.get_rows(ter_path)
-                               for ter_path
-                               in proposed_tree.terminal_paths(path, False)]
-        for ter_rows in prop_tree_terminals:
+        prop_subtree_terminals = [proposed_subtree.get_rows(ter_path)
+                                  for ter_path
+                                  in proposed_subtree.terminal_paths(growable=False)]
+        for ter_rows in prop_subtree_terminals:
             if not ter_rows:
                 return None, None, None
         old_tree_terminals = [self.trees[j].get_rows(ter_path)
                               for ter_path
                               in self.trees[j].terminal_paths(path, False)]
         log_likelihood_ratio = self._log_likelihood(j,
-                                                    prop_tree_terminals,
+                                                    prop_subtree_terminals,
                                                     old_tree_terminals)
 
-        prop_tree_internals = [proposed_tree.node_at(path)
-                               for path in proposed_tree.internal_paths(path)]
+        prop_subtree_internals = [proposed_subtree.node_at(path)
+                                  for path in proposed_subtree.internal_paths()]
         old_tree_internals = [self.trees[j].node_at(path)
                               for path in self.trees[j].internal_paths(path)]
-        log_tree_ratio = self._log_prior_ratio(prop_tree_internals,
+        log_tree_ratio = self._log_prior_ratio(prop_subtree_internals,
                                                old_tree_internals)
         mh_ratio = log_likelihood_ratio + log_tree_ratio
-        return proposed_tree, mh_ratio, path
+        return proposed_subtree, mh_ratio, path
 
     def _propose_tree_swap(self, j: int):
         possible_paths = self.trees[j].swappable_paths()
@@ -287,20 +290,20 @@ class bart:
         children = [self.trees[j].node_at(path + (0, )),
                     self.trees[j].node_at(path + (1, ))]
         if children[0].is_terminal():
-            proposed_tree = self.trees[j].swap(path, swap="right")
+            proposed_subtree = self.trees[j].swap(path, swap="right")
         elif children[1].is_terminal():
-            proposed_tree = self.trees[j].swap(path, swap="left")
+            proposed_subtree = self.trees[j].swap(path, swap="left")
         else:
             if children[0] == children[1]:
-                proposed_tree = self.trees[j].swap(path, swap="both")
+                proposed_subtree = self.trees[j].swap(path, swap="both")
             else:
                 child = self.rng.choice(["left", "right"])
-                proposed_tree = self.trees[j].swap(path, swap=child)
+                proposed_subtree = self.trees[j].swap(path, swap=child)
 
-        prop_tree_terminals = [proposed_tree.get_rows(ter_path)
-                               for ter_path
-                               in proposed_tree.terminal_paths(path, False)]
-        for ter_rows in prop_tree_terminals:
+        prop_subtree_terminals = [proposed_subtree.get_rows(ter_path)
+                                  for ter_path
+                                  in proposed_subtree.terminal_paths(growable=False)]
+        for ter_rows in prop_subtree_terminals:
             if not ter_rows:
                 return None, None, None
         old_tree_terminals = [self.trees[j].get_rows(ter_path)
@@ -308,18 +311,18 @@ class bart:
                               in self.trees[j].terminal_paths(path, False)]
 
         log_likelihood_ratio = self._log_likelihood(j,
-                                                    prop_tree_terminals,
+                                                    prop_subtree_terminals,
                                                     old_tree_terminals)
 
-        prop_tree_internals = [proposed_tree.node_at(path)
-                               for path in proposed_tree.internal_paths(path)]
+        prop_subtree_internals = [proposed_subtree.node_at(path)
+                               for path in proposed_subtree.internal_paths()]
         old_tree_internals = [self.trees[j].node_at(path)
                               for path in self.trees[j].internal_paths(path)]
-        log_tree_ratio = self._log_prior_ratio(prop_tree_internals,
+        log_tree_ratio = self._log_prior_ratio(prop_subtree_internals,
                                                old_tree_internals)
 
         mh_ratio = log_likelihood_ratio + log_tree_ratio
-        return proposed_tree, mh_ratio, path
+        return proposed_subtree, mh_ratio, path
 
     def _valid_splitting_rules(self, rows: list[int]):
         value_count_dict = {}
