@@ -2,6 +2,8 @@ import numpy as np
 import copy
 from scipy.stats import chi2
 from genbart.tree import Node, Tree
+from .profilestats import ProfileStats
+from contextlib import nullcontext
 
 
 class bart:
@@ -42,7 +44,8 @@ class bart:
                  n_burn=200,
                  n_samples=1000,
                  move_distribution=(0.25, 0.25, 0.40, 0.10),
-                 random_state=None):
+                 random_state=None,
+                 profile: bool = False):
         self.m = m
         self.alpha = alpha
         self.beta = beta
@@ -53,6 +56,13 @@ class bart:
         self.n_samples = n_samples
         self.move_distribution = move_distribution
         self.rng = np.random.default_rng(seed=random_state)
+        self.profile = profile
+        self.profiler = ProfileStats() if profile else None
+
+    def _section(self, name: str):
+        if self.profiler is None:
+            return nullcontext()
+        return self.profiler.section(name)
 
     def fit(self, X, y):
         # Transforming and storing data.
@@ -93,10 +103,18 @@ class bart:
         for _ in range(self.n_burn):
             self._one_mcmc_iteration()
 
-        for _ in range(self.n_samples):
-            self._one_mcmc_iteration()
-            self.tree_sample.append({"sample": copy.deepcopy(self.trees),
-                                     "sigma2": self.sigma2})
+        sample_counter = 0
+        while sample_counter < self.n_samples:
+            if self._one_mcmc_iteration():
+                with self._section("fit.deepcopy_sample"):
+                    with self._section("fit.deepcopy_sample.sample"):
+                        sample = []
+                        for j in range(self.m):
+                            sample.append(self.trees[j].serialize())
+                    with self._section("fit.deepcopy_sample.append"):
+                        self.tree_sample.append({"sample": sample,
+                                        "sigma2": self.sigma2})
+                    sample_counter += 1
         return self
 
     def predict(self, X, level: float = 0.90):
@@ -106,7 +124,8 @@ class bart:
             predictions = np.zeros(self.n_samples)
             for i in range(self.n_samples):
                 for j in range(self.m):
-                    predictions[i] += self.tree_sample[i]["sample"][j].predict(data)
+                    predictions[i] += self._predict_serialized_tree_row(data,
+                                                                        self.tree_sample[i]["sample"][j])
             conf_int = np.quantile(predictions, [a/2.0, 1 - a/2.0])
             return (self._inverse_transform_y(predictions.mean()),
                     tuple(self._inverse_transform_y(conf_int)))
@@ -116,29 +135,73 @@ class bart:
             predictions = np.zeros((X.shape[0], self.n_samples))
             for i in range(self.n_samples):
                 for j in range(self.m):
-                    predictions[:, i] += self.tree_sample[i]["sample"][j].predict(data)
+                    predictions[:, i] += self._predict_serialized_tree_matrix(data,
+                                                                              self.tree_sample[i]["sample"][j])
             conf_ints = np.quantile(predictions, [a/2.0, 1 - a/2.0], axis=1)
             return (self._inverse_transform_y(predictions.mean(axis=1)),
                     self._inverse_transform_y(conf_ints))
+    
+    def _predict_serialized_tree_row(self, x: np.array, serialized_tree: dict):
+        variable = serialized_tree["variable"]
+        value = serialized_tree["value"]
+        left = serialized_tree["left"]
+        right = serialized_tree["right"]
+        mu = serialized_tree["mu"]
+        is_terminal = serialized_tree["is_terminal"]
+
+        node = 0
+        while not is_terminal[node]:
+            if x[variable[node]] <= value[node]:
+                node = left[node]
+            else:
+                node = right[node]
+        return mu[node]
+    
+    def _predict_serialized_tree_matrix(self, X: np.ndarray, serialized_tree: dict):
+        out = np.empty(X.shape[0], dtype=float)
+
+        variable = serialized_tree["variable"]
+        value = serialized_tree["value"]
+        left = serialized_tree["left"]
+        right = serialized_tree["right"]
+        mu = serialized_tree["mu"]
+        is_terminal = serialized_tree["is_terminal"]
+
+        for i in range(X.shape[0]):
+            node = 0
+            while not is_terminal[node]:
+                if X[i, variable[node]] <= value[node]:
+                    node = left[node]
+                else:
+                    node = right[node]
+            out[i] = mu[node]
+        return out
+
 
     def _one_mcmc_iteration(self):
-        for j in range(self.m):
-            self._draw_tree(j)
-            self._draw_mu(j)
-            self._update_tps_and_fitted_sums_incremental(j)
-        self.sigma2 = self._draw_sigma()
+        with self._section("iter.total"):
+            for j in range(self.m):
+                new_tree_bool = self._draw_tree(j)
+                self._draw_mu(j)
+                self._update_tps_and_fitted_sums_incremental(j)
+            self.sigma2 = self._draw_sigma()
+        return new_tree_bool
 
     def _draw_tree(self, j: int):
         move = self.rng.choice(["grow", "prune", "change", "swap"],
                                p=self.move_distribution)
         if move == "grow":
-            proposed_subtree, mh_ratio, old_path = self._propose_tree_grow(j)
+            with self._section("propose.grow"):
+                proposed_subtree, mh_ratio, old_path = self._propose_tree_grow(j)
         elif move == "prune":
-            proposed_subtree, mh_ratio, old_path = self._propose_tree_prune(j)
+            with self._section("propose.prune"):
+                proposed_subtree, mh_ratio, old_path = self._propose_tree_prune(j)
         elif move == "change":
-            proposed_subtree, mh_ratio, old_path = self._propose_tree_change(j)
+            with self._section("propose.change"):
+                proposed_subtree, mh_ratio, old_path = self._propose_tree_change(j)
         elif move == "swap":
-            proposed_subtree, mh_ratio, old_path = self._propose_tree_swap(j)
+            with self._section("propose.swap"):
+                proposed_subtree, mh_ratio, old_path = self._propose_tree_swap(j)
         else:
             return
 
@@ -147,7 +210,10 @@ class bart:
 
         u = np.log(self.rng.uniform())
         if u < min(0.0, mh_ratio):
-            self.trees[j].replace_subtree(old_path, proposed_subtree)
+            with self._section("replace_subtree"):
+                self.trees[j].replace_subtree(old_path, proposed_subtree)
+                return True
+        return False
 
     def _propose_tree_grow(self, j: int):
         possible_paths = self.trees[j].terminal_paths()
@@ -398,18 +464,8 @@ class bart:
     def _partial_residuals(self, j):
         return self.y - self.fitted_sums + self.training_predictions[:, j]
 
-    def _update_training_predictions(self, j: int | None = None):
-        if j is None:
-            old_tp = self.training_predictions.copy()
-            for i in range(self.n):
-                for j in range(self.m):
-                    self.training_predictions[i, j] = self.trees[j].predict(self.X[i, :])
-            return old_tp - self.training_predictions
-        else:
-            old_tp = self.training_predictions[:, j].copy()
-            self.training_predictions[:, j] = self.trees[j].predict(self.X)
-            return old_tp - self.training_predictions[:, j]
-
     def _update_tps_and_fitted_sums_incremental(self, j: int):
-        diff = self._update_training_predictions(j)
-        self.fitted_sums = self.fitted_sums - diff
+        old_tp = self.training_predictions[:, j].copy()
+        for node in self.trees[j].terminal_nodes():
+            self.training_predictions[node.rows, j] = node.mu
+        self.fitted_sums += self.training_predictions[:, j] - old_tp

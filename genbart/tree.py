@@ -231,11 +231,7 @@ class Tree:
         Each element of the list is a reference to a terminal node
         in the tree.
         """
-        paths = []
-        self._collect_paths(self.root, (), paths,
-                            lambda x: x.is_terminal())
-        nodes = [self.node_at(path) for path in paths]
-        return nodes
+        return list(self._iter_terminal_node(self.root))
 
     def get_rows(self, path: tuple):
         """Return indices of rows of data associated with the node at path."""
@@ -426,6 +422,50 @@ class Tree:
                 y[i] = self._predict(X[i, :])
             return y
         raise ValueError("X must be an array of a 2d-matrix.")
+    
+    def serialize(self):
+        variable = []
+        value = []
+        left = []
+        right = []
+        mu = []
+        is_terminal = []
+
+        def visit(node: Node):
+            idx = len(variable)
+
+            variable.append(-1)
+            value.append(0.0)
+            left.append(-1)
+            right.append(-1)
+            mu.append(0.0)
+            is_terminal.append(False)
+
+            if node.is_terminal():
+                mu[idx] = float(node.mu)
+                is_terminal[idx] = True
+                return idx
+
+            variable[idx] = int(node.variable)
+            value[idx] = float(node.value)
+
+            left_idx = visit(node.left)
+            right_idx = visit(node.right)
+
+            left[idx] = left_idx
+            right[idx] = right_idx
+            return idx
+
+        visit(self.root)
+
+        return {
+            "variable": np.asarray(variable, dtype=np.int32),
+            "value": np.asarray(value, dtype=float),
+            "left": np.asarray(left, dtype=np.int32),
+            "right": np.asarray(right, dtype=np.int32),
+            "mu": np.asarray(mu, dtype=float),
+            "is_terminal": np.asarray(is_terminal, dtype=bool),
+    }
 
     def _update_data_rows(self, node: Node):
         """Return a subtree with data rows updated.
@@ -461,6 +501,13 @@ class Tree:
                              left_node=self._update_data_rows(node_l),
                              right_node=self._update_data_rows(node_r),
                              rows=node.rows)
+
+    def _iter_terminal_node(self, node):
+        if node.is_terminal():
+            yield node
+        else:
+            yield from self._iter_terminal_node(node.left)
+            yield from self._iter_terminal_node(node.right)
 
     def _validate(self):
         """Check that the tree is structurally valid.
