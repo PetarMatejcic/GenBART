@@ -26,7 +26,7 @@ class Node:
     variable: int | None
     value: float | None
     mu: float | None
-    rows: list[int]
+    rows: np.ndarray
 
     def __init__(self,
                  mu: float | None = None,
@@ -34,13 +34,16 @@ class Node:
                  value: float | None = None,
                  left: "Node | None" = None,
                  right: "Node | None" = None,
-                 rows: list[int] | None = None):
+                 rows: np.ndarray | None = None):
         self.mu = mu
         self.variable = variable
         self.value = value
         self.left = left
         self.right = right
-        self.rows = rows
+        if rows is None:
+            self.rows = None
+        else:
+            self.rows = np.asarray(rows, dtype=np.intp)
 
     @classmethod
     def internal(cls,
@@ -48,7 +51,7 @@ class Node:
                  value: float,
                  left_node: Node,
                  right_node: Node,
-                 rows: list[int]):
+                 rows):
         """Create an internal node.
 
         The returned node stores a split rule and references to its left and
@@ -64,7 +67,7 @@ class Node:
     @classmethod
     def terminal(cls,
                  mu: float,
-                 rows: list[int]):
+                 rows):
         """Create a terminal node.
 
         The returned node stores ``mu`` value and has no children.
@@ -131,7 +134,7 @@ class Tree:
                  root: Node | None = None,
                  data: np.ndarray | None = None):
         if root is None:
-            self.root = Node.terminal(0.0, [i for i in range(data.shape[0])])
+            self.root = Node.terminal(0.0, np.arange(data.shape[0], dtype=np.intp))
         else:
             self.root = root
         self.data = data
@@ -300,8 +303,9 @@ class Tree:
         if self.node_at(path).is_internal():
             raise ValueError("Cannot grow on an internal node.")
         rows = self.get_rows(path)
-        rows_l = [r for r in rows if self.data[r, variable] <= value]
-        rows_r = [r for r in rows if self.data[r, variable] > value]
+        left_mask = self.data[rows, variable] <= value
+        rows_l = rows[left_mask]
+        rows_r = rows[~left_mask]
         replacement = Node.internal(variable=variable,
                                     value=value,
                                     left_node=Node.terminal(0.0,
@@ -336,8 +340,10 @@ class Tree:
                                     left_node=old_node.left,
                                     right_node=old_node.right,
                                     rows=old_node.rows)
-        replacement = self._update_data_rows(replacement)
-        return Tree(replacement, self.data)
+        terminals = []
+        internals = []
+        replacement = self._update_data_rows(replacement, terminals, internals)
+        return Tree(replacement, self.data), terminals, internals
 
     def swap(self, path: tuple, swap=Literal["left", "right", "both"]):
         """Return a new tree with a parent-child split swap applied.
@@ -423,62 +429,77 @@ class Tree:
             return y
         raise ValueError("X must be an array of a 2d-matrix.")
     
+    def count_nodes(self):
+        n = 0
+        stack = [self.root]
+        while stack:
+            node = stack.pop()
+            n += 1
+            if not node.is_terminal():
+                stack.append(node.right)
+                stack.append(node.left)
+        return n
+    
     def serialize(self):
-        variable = []
-        value = []
-        left = []
-        right = []
-        mu = []
-        is_terminal = []
+        n = self.count_nodes()
 
-        def visit(node: Node):
-            idx = len(variable)
+        variable = np.full(n, -1, dtype=np.int32)
+        value = np.zeros(n, dtype=np.float32)
+        left = np.full(n, -1, dtype=np.int32)
+        right = np.full(n, -1, dtype=np.int32)
+        mu = np.zeros(n, dtype=np.float32)
 
-            variable.append(-1)
-            value.append(0.0)
-            left.append(-1)
-            right.append(-1)
-            mu.append(0.0)
-            is_terminal.append(False)
+        stack = [(self.root, -1, False)]
+        next_idx = 0
+
+        while stack:
+            node, parent_idx, is_right_child = stack.pop()
+            idx = next_idx
+            next_idx += 1
+
+            if parent_idx != -1:
+                if is_right_child:
+                    right[parent_idx] = idx
+                else:
+                    left[parent_idx] = idx
 
             if node.is_terminal():
                 mu[idx] = float(node.mu)
-                is_terminal[idx] = True
-                return idx
+            else:
+                variable[idx] = int(node.variable)
+                value[idx] = float(node.value)
 
-            variable[idx] = int(node.variable)
-            value[idx] = float(node.value)
+                stack.append((node.right, idx, True))
+                stack.append((node.left, idx, False))
 
-            left_idx = visit(node.left)
-            right_idx = visit(node.right)
+        return SerializedTree(
+            variable=variable,
+            value=value,
+            left=left,
+            right=right,
+            mu=mu,
+        )
 
-            left[idx] = left_idx
-            right[idx] = right_idx
-            return idx
-
-        visit(self.root)
-
-        return {
-            "variable": np.asarray(variable, dtype=np.int32),
-            "value": np.asarray(value, dtype=float),
-            "left": np.asarray(left, dtype=np.int32),
-            "right": np.asarray(right, dtype=np.int32),
-            "mu": np.asarray(mu, dtype=float),
-            "is_terminal": np.asarray(is_terminal, dtype=bool),
-    }
-
-    def _update_data_rows(self, node: Node):
+    def _update_data_rows(self, node: Node,
+                          terminals: list[Node] = None,
+                          internals: list[Node] = None):
         """Return a subtree with data rows updated.
 
         Data rows are updated recursevly from node downwards. Used
         for calculating replacement trees in change and swap functions.
         """
         if node.is_terminal():
+            if terminals is not None:
+                terminals.append(node)
             return node
+        if internals is not None:
+            internals.append(node)
 
         variable = node.variable
         value = node.value
-        rows_l = [r for r in node.rows if self.data[r, variable] <= value]
+        rows = node.rows
+        left_mask = self.data[rows, variable] <= value
+        rows_l = rows[left_mask]
         if node.left.is_terminal():
             node_l = Node.terminal(node.left.mu, rows_l)
         else:
@@ -487,7 +508,7 @@ class Tree:
                                    node.left.left,
                                    node.left.right,
                                    rows_l)
-        rows_r = [r for r in node.rows if self.data[r, variable] > value]
+        rows_r = rows[~left_mask]
         if node.right.is_terminal():
             node_r = Node.terminal(node.right.mu, rows_r)
         else:
@@ -498,8 +519,8 @@ class Tree:
                                    rows_r)
         return Node.internal(variable=variable,
                              value=value,
-                             left_node=self._update_data_rows(node_l),
-                             right_node=self._update_data_rows(node_r),
+                             left_node=self._update_data_rows(node_l, terminals, internals),
+                             right_node=self._update_data_rows(node_r, terminals, internals),
                              rows=node.rows)
 
     def _iter_terminal_node(self, node):
@@ -645,3 +666,25 @@ class Tree:
     def show(self, show_rows: bool = True) -> None:
         """Print a readable top-down representation of the tree."""
         print(self._draw(show_rows=show_rows))
+
+
+@dataclass(slots=True)
+class SerializedTree:
+    variable: np.ndarray
+    value: np.ndarray
+    left: np.ndarray
+    right: np.ndarray
+    mu: np.ndarray
+    # leaf iff left[idx] == -1
+
+
+    def count_nodes(root):
+        n = 0
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            n += 1
+            if not node.is_terminal():
+                stack.append(node.right)
+                stack.append(node.left)
+        return n

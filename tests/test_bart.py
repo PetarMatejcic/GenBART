@@ -12,14 +12,15 @@ def _assert_partition(tree: Tree, path: tuple = ()):
     left = tree.node_at(path + (0,))
     right = tree.node_at(path + (1,))
 
-    expected_left = [r for r in node.rows
-                     if tree.data[r, node.variable] <= node.value]
-    expected_right = [r for r in node.rows
-                      if tree.data[r, node.variable] > node.value]
+    expected_left = np.array([r for r in node.rows
+                     if tree.data[r, node.variable] <= node.value])
+    expected_right = np.array([r for r in node.rows
+                      if tree.data[r, node.variable] > node.value])
 
-    assert left.rows == expected_left
-    assert right.rows == expected_right
-    assert sorted(left.rows + right.rows) == sorted(node.rows)
+    assert np.array_equal(left.rows, expected_left)
+    assert np.array_equal(right.rows, expected_right)
+    assert np.array_equal(np.sort(np.concatenate((left.rows, right.rows))),
+                          np.sort(node.rows))
 
     _assert_partition(tree, path + (0,))
     _assert_partition(tree, path + (1,))
@@ -39,7 +40,7 @@ def test_tree_grow_change_and_swap_keep_row_bookkeeping_consistent():
 
     tree = Tree(data=X)
     tree.replace_subtree((), tree.grow((), variable=0, value=0.50))
-    tree.replace_subtree((), tree.change((), variable=1, value=0.50))
+    tree.replace_subtree((), tree.change((), variable=1, value=0.50)[0])
     _assert_partition(tree)
 
     tree.replace_subtree((0, ), tree.grow((0,), variable=0, value=0.15))
@@ -86,31 +87,6 @@ def test_incremental_prediction_bookkeeping_matches_tree_predictions():
                             - model.fitted_sums
                             + model.training_predictions[:, j])
         assert np.allclose(model._partial_residuals(j), expected_partial)
-
-
-def test_valid_splitting_rules_only_return_nonempty_splits():
-    X = np.array(
-        [
-            [0.0, 1.0],
-            [0.0, 2.0],
-            [1.0, 2.0],
-            [2.0, 3.0],
-        ]
-    )
-    y = np.array([0.0, 0.0, 1.0, 1.0])
-
-    model = bart(m=1, n_burn=0, n_samples=0, random_state=1)
-    model.fit(X, y)
-    rules = model._valid_splitting_rules([0, 1, 2, 3])
-
-    assert (0, 2.0) not in rules
-    assert (1, 3.0) not in rules
-
-    for variable, value in rules:
-        left = [r for r in range(len(X)) if X[r, variable] <= value]
-        right = [r for r in range(len(X)) if X[r, variable] > value]
-        assert left
-        assert right
 
 
 def test_change_proposal_runs_without_type_errors_on_internal_tree():

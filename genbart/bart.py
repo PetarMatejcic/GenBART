@@ -1,7 +1,7 @@
 import numpy as np
 import copy
 from scipy.stats import chi2
-from genbart.tree import Node, Tree
+from genbart.tree import Node, Tree, SerializedTree
 from .profilestats import ProfileStats
 from contextlib import nullcontext
 
@@ -111,9 +111,8 @@ class bart:
                         sample = []
                         for j in range(self.m):
                             sample.append(self.trees[j].serialize())
-                    with self._section("fit.deepcopy_sample.append"):
-                        self.tree_sample.append({"sample": sample,
-                                        "sigma2": self.sigma2})
+                    self.tree_sample.append({"sample": sample,
+                                    "sigma2": self.sigma2})
                     sample_counter += 1
         return self
 
@@ -141,40 +140,23 @@ class bart:
             return (self._inverse_transform_y(predictions.mean(axis=1)),
                     self._inverse_transform_y(conf_ints))
     
-    def _predict_serialized_tree_row(self, x: np.array, serialized_tree: dict):
-        variable = serialized_tree["variable"]
-        value = serialized_tree["value"]
-        left = serialized_tree["left"]
-        right = serialized_tree["right"]
-        mu = serialized_tree["mu"]
-        is_terminal = serialized_tree["is_terminal"]
-
+    def _predict_serialized_tree_row(self,
+                                     x: np.array,
+                                     serialized_tree: SerializedTree):
         node = 0
-        while not is_terminal[node]:
-            if x[variable[node]] <= value[node]:
-                node = left[node]
+        while serialized_tree.left[node] != -1:
+            if x[serialized_tree.variable[node]] <= serialized_tree.value[node]:
+                node = serialized_tree.left[node]
             else:
-                node = right[node]
-        return mu[node]
+                node = serialized_tree.right[node]
+        return serialized_tree.mu[node]
     
-    def _predict_serialized_tree_matrix(self, X: np.ndarray, serialized_tree: dict):
+    def _predict_serialized_tree_matrix(self,
+                                        X: np.ndarray,
+                                        serialized_tree: SerializedTree):
         out = np.empty(X.shape[0], dtype=float)
-
-        variable = serialized_tree["variable"]
-        value = serialized_tree["value"]
-        left = serialized_tree["left"]
-        right = serialized_tree["right"]
-        mu = serialized_tree["mu"]
-        is_terminal = serialized_tree["is_terminal"]
-
         for i in range(X.shape[0]):
-            node = 0
-            while not is_terminal[node]:
-                if X[i, variable[node]] <= value[node]:
-                    node = left[node]
-                else:
-                    node = right[node]
-            out[i] = mu[node]
+            out[i] = self._predict_serialized_tree_row(X[i, :], serialized_tree)
         return out
 
 
@@ -224,8 +206,10 @@ class bart:
         rows = self.trees[j].get_rows(path)
         value_counts = {}
         for var in range(self.p):
-            value_counts[var] = np.unique(self.X[rows, var])
-        possible_variables = [k for k, v in value_counts.items() if len(v) > 1]
+            vals = np.unique(self.X[rows, var])
+            if vals.size > 1:
+                value_counts[var] = vals
+        possible_variables = list(value_counts.keys())
         b_ = len(possible_variables)
         if b_ < 1:
             return None, None, None
@@ -243,10 +227,8 @@ class bart:
                                 - np.log(self.move_distribution[0])
                                 - np.log(max(1, len(self.trees[j].prunable_paths()))))
 
-        rows_l = [r for r in proposed_subtree.get_rows((0,))
-                  if self.X[r, variable] <= value]
-        rows_r = [r for r in proposed_subtree.get_rows((1, ))
-                  if self.X[r, variable] > value]
+        rows_l = proposed_subtree.get_rows((0, ))
+        rows_r = proposed_subtree.get_rows((1, ))
         log_likelihood_ratio = self._log_likelihood(j,
                                                     [rows_l, rows_r],
                                                     [rows])
@@ -279,9 +261,10 @@ class bart:
               + 1)
         value_count_dict = {}
         for var in range(self.p):
-            value_count_dict[var] = np.unique(self.X[rows, var])
-        possible_variables = [k for k, v in value_count_dict.items()
-                              if len(v) > 1]
+            vals = np.unique(self.X[rows, var])
+            if vals.size > 1:
+                value_count_dict[var] = vals
+        possible_variables = list(value_count_dict.keys())
         p_ = len(possible_variables)
         possible_values = value_count_dict[old_variable]
         eta_ = len(possible_values) - 1
@@ -317,33 +300,27 @@ class bart:
         old_variable = self.trees[j].node_at(path).variable
         old_value = self.trees[j].node_at(path).value
         rows = self.trees[j].get_rows(path)
-        splitting_rules = self._valid_splitting_rules(rows)
-        splitting_rules.remove((old_variable, old_value))
-        if not splitting_rules:
+        new_rule = self._sample_uniform_change_rule(rows, old_variable, old_value)
+        if new_rule is None:
             return None, None, None
+        new_variable, new_value = new_rule
 
-        new_variable, new_value = self.rng.choice(splitting_rules)
-        new_variable = int(new_variable)
-        proposed_subtree = self.trees[j].change(path, new_variable, new_value)
+        proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].change(path, new_variable, new_value)
 
-        prop_subtree_terminals = [proposed_subtree.get_rows(ter_path)
-                                  for ter_path
-                                  in proposed_subtree.terminal_paths(growable=False)]
-        for ter_rows in prop_subtree_terminals:
-            if not ter_rows:
+        for ter in subtree_terminals:
+            if ter.rows.size == 0:
                 return None, None, None
+        subtree_terminal_paths = [ter.rows for ter in subtree_internals]
         old_tree_terminals = [self.trees[j].get_rows(ter_path)
                               for ter_path
                               in self.trees[j].terminal_paths(path, False)]
         log_likelihood_ratio = self._log_likelihood(j,
-                                                    prop_subtree_terminals,
+                                                    subtree_terminal_paths,
                                                     old_tree_terminals)
 
-        prop_subtree_internals = [proposed_subtree.node_at(path)
-                                  for path in proposed_subtree.internal_paths()]
         old_tree_internals = [self.trees[j].node_at(path)
                               for path in self.trees[j].internal_paths(path)]
-        log_tree_ratio = self._log_prior_ratio(prop_subtree_internals,
+        log_tree_ratio = self._log_prior_ratio(subtree_internals,
                                                old_tree_internals)
         mh_ratio = log_likelihood_ratio + log_tree_ratio
         return proposed_subtree, mh_ratio, path
@@ -370,7 +347,7 @@ class bart:
                                   for ter_path
                                   in proposed_subtree.terminal_paths(growable=False)]
         for ter_rows in prop_subtree_terminals:
-            if not ter_rows:
+            if ter_rows.size == 0:
                 return None, None, None
         old_tree_terminals = [self.trees[j].get_rows(ter_path)
                               for ter_path
@@ -390,17 +367,63 @@ class bart:
         mh_ratio = log_likelihood_ratio + log_tree_ratio
         return proposed_subtree, mh_ratio, path
 
-    def _valid_splitting_rules(self, rows: list[int]):
-        value_count_dict = {}
+    def _sample_uniform_change_rule(self, rows, old_variable, old_value):
+        """Sample uniformly from all valid splitting rules on `rows`,
+        excluding the current rule `(old_variable, old_value)`.
+
+        Returns
+        -------
+        (new_variable, new_value) if an alternative rule exists,
+        otherwise None.
+        """
+
+        cut_values = []
+        valid_vars = []
+        counts = []
+
+        total_rules = 0
+        old_flat_idx = None
+
         for var in range(self.p):
-            value_count_dict[var] = np.unique(self.X[rows, var])
-        return [(var, val) for var, values in value_count_dict.items()
-                for val in values[:-1] if len(values) > 1]
+            vals = np.unique(self.X[rows, var])
+            if vals.size <= 1:
+                continue
+
+            cuts = vals[:-1]
+            n_cuts = int(cuts.size)
+
+            if var == old_variable:
+                matches = np.flatnonzero(cuts == old_value)
+                if matches.size:
+                    old_flat_idx = total_rules + int(matches[0])
+
+            valid_vars.append(var)
+            cut_values.append(cuts)
+            counts.append(n_cuts)
+            total_rules += n_cuts
+
+        if total_rules <= 1:
+            return None
+
+        if old_flat_idx is None:
+            raise ValueError("Old splitting rule was not found among valid rules.")
+
+        u = int(self.rng.integers(total_rules - 1))
+        if u >= old_flat_idx:
+            u += 1
+
+        offset = 0
+        for k, var in enumerate(valid_vars):
+            n_cuts = counts[k]
+            if u < offset + n_cuts:
+                return int(var), cut_values[k][u - offset]
+            offset += n_cuts
+        raise RuntimeError("Failed to decode sampled splitting rule.")
 
     def _log_likelihood(self,
                         j: int,
-                        new_rows: list[list],
-                        old_rows: list[list]):
+                        new_rows: list[np.ndarray],
+                        old_rows: list[np.ndarray]):
         residuals = self._partial_residuals(j)
         ratio = 0.0
         for row in new_rows:

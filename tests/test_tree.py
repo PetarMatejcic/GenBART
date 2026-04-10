@@ -73,7 +73,7 @@ def test_init_internal():
     assert node.value == 2.0
     assert node.left is not None
     assert node.right is not None
-    assert node.rows == [0, 1]
+    assert np.array_equal(node.rows, [0, 1])
     assert node.mu is None
 
 
@@ -146,8 +146,8 @@ def test_max_depth(fixed_test_tree):
 def test_get_rows(fixed_test_tree):
     t = fixed_test_tree
 
-    assert t.get_rows(()) == [0, 1, 2, 3, 4, 5]
-    assert t.get_rows((0, )) == [0, 1, 2, 3]
+    assert np.array_equal(t.get_rows(()), [0, 1, 2, 3, 4, 5])
+    assert np.array_equal(t.get_rows((0, )), [0, 1, 2, 3])
 
 
 def test_grow_tree(tiny_data):
@@ -161,8 +161,8 @@ def test_grow_tree(tiny_data):
     assert t.node_at((1, )).is_terminal() is True
     assert t.node_at((0, 0)).is_terminal() is True
     assert t.node_at((0, 1)).is_terminal() is True
-    assert t.get_rows(()) == [0, 1, 2, 3, 4, 5]
-    assert t.get_rows((0, )) == [0, 1, 2]
+    assert np.array_equal(t.get_rows(()), [0, 1, 2, 3, 4, 5])
+    assert np.array_equal(t.get_rows((0, )), [0, 1, 2])
 
 
 def test_prune_tree(tiny_data):
@@ -175,9 +175,9 @@ def test_prune_tree(tiny_data):
     assert t.node_at(()).is_internal() is True
     assert t.node_at((0, )).is_terminal() is True
     assert t.node_at((1, )).is_terminal() is True
-    assert t.get_rows((0, )) == [0, 1, 2]
-    assert t.get_rows((1, )) == [3, 4, 5]
-    assert t.get_rows(()) == [0, 1, 2, 3, 4, 5]
+    assert np.array_equal(t.get_rows((0, )), [0, 1, 2])
+    assert np.array_equal(t.get_rows((1, )), [3, 4, 5])
+    assert np.array_equal(t.get_rows(()), [0, 1, 2, 3, 4, 5])
 
 
 def test_change_tree(tiny_data):
@@ -185,14 +185,14 @@ def test_change_tree(tiny_data):
     t = Tree(data=X)
     t.replace_subtree((), t.grow((), 0, -1.0))
     t.replace_subtree((0, ), t.grow((0, ), 1, -1.0))
-    t.replace_subtree((), t.change((), 0, 1.0))
+    t.replace_subtree((), t.change((), 0, 1.0)[0])
 
     assert t.root.variable == 0
     assert t.root.value == 1.0
-    assert t.get_rows((0, )) == [0, 1, 2, 3]
-    assert t.get_rows((1, )) == [4, 5]
-    assert t.get_rows((0, 0)) == [0, 1]
-    assert t.get_rows((0, 1)) == [2, 3]
+    assert np.array_equal(t.get_rows((0, )), [0, 1, 2, 3])
+    assert np.array_equal(t.get_rows((1, )), [4, 5])
+    assert np.array_equal(t.get_rows((0, 0)), [0, 1])
+    assert np.array_equal(t.get_rows((0, 1)), [2, 3])
 
 
 def test_swap_tree(tiny_data):
@@ -206,11 +206,25 @@ def test_swap_tree(tiny_data):
     assert t.root.value == -1.0
     assert t.root.left.variable == 0
     assert t.root.left.value == -1.0
-    assert t.get_rows(()) == [0, 1, 2, 3, 4, 5]
-    assert t.get_rows((0, )) == [0, 1]
-    assert t.get_rows((1, )) == [2, 3, 4, 5]
-    assert t.get_rows((0, 0)) == [0, 1]
-    assert t.get_rows((0, 1)) == []
+    assert np.array_equal(t.get_rows(()), [0, 1, 2, 3, 4, 5])
+    assert np.array_equal(t.get_rows((0, )), [0, 1])
+    assert np.array_equal(t.get_rows((1, )), [2, 3, 4, 5])
+    assert np.array_equal(t.get_rows((0, 0)), [0, 1])
+    assert np.array_equal(t.get_rows((0, 1)), [])
+
+def test_update_data_rows(tiny_data):
+    X, _ = tiny_data
+    t = Tree(data=X)
+    t.replace_subtree((), t.grow((), 0, -1.0))
+    t.replace_subtree((0, ), t.grow((0, ), 1, -1.0))
+
+    terminals = []
+    internals = []
+    s = t._update_data_rows(t.node_at((0, )), terminals, internals)
+    assert terminals[0] == t.node_at((0, 0))
+    assert terminals[1] == t.node_at((0, 1))
+    assert internals[0] == t.node_at((0, ))
+
 
 
 def test_predict(tiny_data):
