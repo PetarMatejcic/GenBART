@@ -40,7 +40,7 @@ def test_tree_grow_change_and_swap_keep_row_bookkeeping_consistent():
 
     tree = Tree(data=X)
     tree.replace_subtree((), tree.grow((), variable=0, value=0.50))
-    tree.replace_subtree((), tree.change((), variable=1, value=0.50))
+    tree.replace_subtree((), tree.change((), variable=1, value=0.50)[0])
     _assert_partition(tree)
 
     tree.replace_subtree((0, ), tree.grow((0,), variable=0, value=0.15))

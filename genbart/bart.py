@@ -257,7 +257,7 @@ class bart:
         proposed_subtree = self.trees[j].prune(path)
         b_ = (len(self.trees[j].terminal_paths())
               - (len(rows_l) > 1)
-              - (len(rows_r) > 1)
+              - (len(rows_r) > 2)
               + 1)
         value_count_dict = {}
         for var in range(self.p):
@@ -305,17 +305,23 @@ class bart:
             return None, None, None
         new_variable, new_value = new_rule
 
-        proposed_subtree = self.trees[j].change(path, new_variable, new_value)
+        proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].change(path, new_variable, new_value)
 
-        new_terminal_rows, new_log_internal = proposed_subtree.dfs()
-        if new_terminal_rows is None:
-            return None, None, None
-        old_terminal_rows, old_log_internal = self.trees[j].dfs(path)
-
+        for ter in subtree_terminals:
+            if ter.rows.size == 0:
+                return None, None, None
+        subtree_terminal_paths = [ter.rows for ter in subtree_internals]
+        old_tree_terminals = [self.trees[j].get_rows(ter_path)
+                              for ter_path
+                              in self.trees[j].terminal_paths(path, False)]
         log_likelihood_ratio = self._log_likelihood(j,
-                                                    new_terminal_rows,
-                                                    old_terminal_rows)
-        log_tree_ratio = (new_log_internal - old_log_internal)
+                                                    subtree_terminal_paths,
+                                                    old_tree_terminals)
+
+        old_tree_internals = [self.trees[j].node_at(path)
+                              for path in self.trees[j].internal_paths(path)]
+        log_tree_ratio = self._log_prior_ratio(subtree_internals,
+                                               old_tree_internals)
         mh_ratio = log_likelihood_ratio + log_tree_ratio
         return proposed_subtree, mh_ratio, path
 
@@ -337,15 +343,26 @@ class bart:
                 child = self.rng.choice(["left", "right"])
                 proposed_subtree = self.trees[j].swap(path, swap=child)
 
-        new_terminal_rows, new_log_internal = proposed_subtree.dfs()
-        if new_terminal_rows is None:
-            return None, None, None
-        old_terminal_rows, old_log_internal = self.trees[j].dfs(path)
+        prop_subtree_terminals = [proposed_subtree.get_rows(ter_path)
+                                  for ter_path
+                                  in proposed_subtree.terminal_paths(growable=False)]
+        for ter_rows in prop_subtree_terminals:
+            if ter_rows.size == 0:
+                return None, None, None
+        old_tree_terminals = [self.trees[j].get_rows(ter_path)
+                              for ter_path
+                              in self.trees[j].terminal_paths(path, False)]
 
         log_likelihood_ratio = self._log_likelihood(j,
-                                                    new_terminal_rows,
-                                                    old_terminal_rows)
-        log_tree_ratio = (new_log_internal - old_log_internal)
+                                                    prop_subtree_terminals,
+                                                    old_tree_terminals)
+
+        prop_subtree_internals = [proposed_subtree.node_at(path)
+                               for path in proposed_subtree.internal_paths()]
+        old_tree_internals = [self.trees[j].node_at(path)
+                              for path in self.trees[j].internal_paths(path)]
+        log_tree_ratio = self._log_prior_ratio(prop_subtree_internals,
+                                               old_tree_internals)
 
         mh_ratio = log_likelihood_ratio + log_tree_ratio
         return proposed_subtree, mh_ratio, path

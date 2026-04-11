@@ -340,9 +340,10 @@ class Tree:
                                     left_node=old_node.left,
                                     right_node=old_node.right,
                                     rows=old_node.rows)
-        
-        replacement = self._update_data_rows(replacement)
-        return Tree(replacement, self.data)
+        terminals = []
+        internals = []
+        replacement = self._update_data_rows(replacement, terminals, internals)
+        return Tree(replacement, self.data), terminals, internals
 
     def swap(self, path: tuple, swap=Literal["left", "right", "both"]):
         """Return a new tree with a parent-child split swap applied.
@@ -394,36 +395,6 @@ class Tree:
 
         replacement = self._update_data_rows(replacement)
         return Tree(replacement, self.data)
-    
-    def dfs(self, path = ()):
-        terminal_rows = []
-        log_prior_internals = 0.0
-        stack = [self.node_at(path)]
-        p = self.data.shape[1]
-
-        while stack:
-            node = stack.pop()
-
-            if node.is_terminal():
-                rows = node.rows
-                if rows.size == 0:
-                    return None, None
-                terminal_rows.append(node.rows)
-                continue
-
-            rows = node.rows
-            value_counts = np.empty(p, dtype=np.int32)
-            for var in range(p):
-                value_counts[var] = np.unique(self.data[rows, var]).size
-
-            p_ = np.count_nonzero(value_counts > 1)
-            eta_ = value_counts[node.variable] - 1
-            if p_ != 0 and eta_ != 0:
-                log_prior_internals += -np.log(p_) - np.log(eta_)
-
-            stack.append(node.right)
-            stack.append(node.left)
-        return terminal_rows, log_prior_internals
 
     def _predict(self, x):
         """Return the prediction for a single input vector.
@@ -509,14 +480,20 @@ class Tree:
             mu=mu,
         )
 
-    def _update_data_rows(self, node: Node):
+    def _update_data_rows(self, node: Node,
+                          terminals: list[Node] = None,
+                          internals: list[Node] = None):
         """Return a subtree with data rows updated.
 
         Data rows are updated recursevly from node downwards. Used
         for calculating replacement trees in change and swap functions.
         """
         if node.is_terminal():
+            if terminals is not None:
+                terminals.append(node)
             return node
+        if internals is not None:
+            internals.append(node)
 
         variable = node.variable
         value = node.value
@@ -542,8 +519,8 @@ class Tree:
                                    rows_r)
         return Node.internal(variable=variable,
                              value=value,
-                             left_node=self._update_data_rows(node_l),
-                             right_node=self._update_data_rows(node_r),
+                             left_node=self._update_data_rows(node_l, terminals, internals),
+                             right_node=self._update_data_rows(node_r, terminals, internals),
                              rows=node.rows)
 
     def _iter_terminal_node(self, node):
