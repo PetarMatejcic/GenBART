@@ -103,17 +103,15 @@ class bart:
         for _ in range(self.n_burn):
             self._one_mcmc_iteration()
 
-        sample_counter = 0
-        while sample_counter < self.n_samples:
-            if self._one_mcmc_iteration():
-                with self._section("fit.deepcopy_sample"):
-                    with self._section("fit.deepcopy_sample.sample"):
-                        sample = []
-                        for j in range(self.m):
-                            sample.append(self.trees[j].serialize())
-                    self.tree_sample.append({"sample": sample,
-                                    "sigma2": self.sigma2})
-                    sample_counter += 1
+        for _ in range(self.n_samples):
+            self._one_mcmc_iteration()
+            with self._section("fit.deepcopy_sample"):
+                with self._section("fit.deepcopy_sample.sample"):
+                    sample = []
+                    for j in range(self.m):
+                        sample.append(self.trees[j].serialize())
+                self.tree_sample.append({"sample": sample,
+                                "sigma2": self.sigma2})
         return self
 
     def predict(self, X, level: float = 0.90):
@@ -163,11 +161,10 @@ class bart:
     def _one_mcmc_iteration(self):
         with self._section("iter.total"):
             for j in range(self.m):
-                new_tree_bool = self._draw_tree(j)
+                self._draw_tree(j)
                 self._draw_mu(j)
                 self._update_tps_and_fitted_sums_incremental(j)
             self.sigma2 = self._draw_sigma()
-        return new_tree_bool
 
     def _draw_tree(self, j: int):
         move = self.rng.choice(["grow", "prune", "change", "swap"],
