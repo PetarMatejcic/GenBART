@@ -1,0 +1,23 @@
+axes.xmargin : 0.025
+legend.frameon : False
+
+xtick.direction : in
+ytick.direction : in
+xtick.top: False
+ytick.right: False
+
+axes.grid : True
+grid.alpha : 0.25
+grid.linewidth : 0.6
+grid.linestyle : --
+grid.color: "#d0d0d0"
+axes.axisbelow: True
+
+lines.linewidth: 1.7
+lines.markersize: 5
+
+figure.facecolor : white
+axes.facecolor : "#fafafa"
+savefig.facecolor : none
+
+axes.prop_cycle : cycler("color", ["#CC2936", "#08415C", "#28721D", "#EEBA0B", "#70201F"])

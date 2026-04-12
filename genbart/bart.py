@@ -96,7 +96,7 @@ class bart:
         self.lambda_ = (self.sigma2 / self.nu) * chi2.ppf(1-self.q, df=self.nu)
 
         # Initializing predictions.
-        self.training_predictions = np.zeros((self.n, self.m))
+        self.training_predictions = np.zeros((self.m, self.n))
         self.fitted_sums = np.zeros(self.n)
         self.tree_sample = []
 
@@ -105,13 +105,11 @@ class bart:
 
         for _ in range(self.n_samples):
             self._one_mcmc_iteration()
-            with self._section("fit.deepcopy_sample"):
-                with self._section("fit.deepcopy_sample.sample"):
-                    sample = []
-                    for j in range(self.m):
-                        sample.append(self.trees[j].serialize())
-                self.tree_sample.append({"sample": sample,
-                                "sigma2": self.sigma2})
+            sample = []
+            for j in range(self.m):
+                sample.append(self.trees[j].serialize())
+            self.tree_sample.append({"sample": sample,
+                            "sigma2": self.sigma2})
         return self
 
     def predict(self, X, level: float = 0.90):
@@ -137,7 +135,28 @@ class bart:
             conf_ints = np.quantile(predictions, [a/2.0, 1 - a/2.0], axis=1)
             return (self._inverse_transform_y(predictions.mean(axis=1)),
                     self._inverse_transform_y(conf_ints))
-    
+        
+    def variable_importance(self):
+        if not self.tree_sample:
+            raise RuntimeError("No posterior samples stored.")
+
+        importance = np.zeros(self.p, dtype=float)
+
+        for draw in self.tree_sample:
+            counts = np.zeros(self.p, dtype=np.int64)
+            total_splits = 0
+
+            for tree in draw["sample"]:
+                mask = tree.variable >= 0
+                if np.any(mask):
+                    counts += np.bincount(tree.variable[mask], minlength=self.p)
+                    total_splits += int(mask.sum())
+
+            if total_splits > 0:
+                importance += counts / total_splits
+        return importance / self.n_samples
+
+
     def _predict_serialized_tree_row(self,
                                      x: np.array,
                                      serialized_tree: SerializedTree):
@@ -157,13 +176,14 @@ class bart:
             out[i] = self._predict_serialized_tree_row(X[i, :], serialized_tree)
         return out
 
-
     def _one_mcmc_iteration(self):
         with self._section("iter.total"):
             for j in range(self.m):
                 self._draw_tree(j)
-                self._draw_mu(j)
-                self._update_tps_and_fitted_sums_incremental(j)
+                with self._section("draw_mu"):
+                    self._draw_mu(j)
+                with self._section("update_tps"):
+                    self._update_tps_and_fitted_sums_incremental(j)
             self.sigma2 = self._draw_sigma()
 
     def _draw_tree(self, j: int):
@@ -189,9 +209,8 @@ class bart:
 
         u = np.log(self.rng.uniform())
         if u < min(0.0, mh_ratio):
-            with self._section("replace_subtree"):
-                self.trees[j].replace_subtree(old_path, proposed_subtree)
-                return True
+            self.trees[j].replace_subtree(old_path, proposed_subtree)
+            return True
         return False
 
     def _propose_tree_grow(self, j: int):
@@ -254,7 +273,7 @@ class bart:
         proposed_subtree = self.trees[j].prune(path)
         b_ = (len(self.trees[j].terminal_paths())
               - (len(rows_l) > 1)
-              - (len(rows_r) > 2)
+              - (len(rows_r) > 1)
               + 1)
         value_count_dict = {}
         for var in range(self.p):
@@ -303,11 +322,9 @@ class bart:
         new_variable, new_value = new_rule
 
         proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].change(path, new_variable, new_value)
-
-        for ter in subtree_terminals:
-            if ter.rows.size == 0:
-                return None, None, None
-        subtree_terminal_paths = [ter.rows for ter in subtree_internals]
+        if proposed_subtree is None:
+            return None, None, None
+        subtree_terminal_paths = [ter.rows for ter in subtree_terminals]
         old_tree_terminals = [self.trees[j].get_rows(ter_path)
                               for ter_path
                               in self.trees[j].terminal_paths(path, False)]
@@ -339,6 +356,9 @@ class bart:
             else:
                 child = self.rng.choice(["left", "right"])
                 proposed_subtree = self.trees[j].swap(path, swap=child)
+        
+        if proposed_subtree is None:
+            return None, None, None
 
         prop_subtree_terminals = [proposed_subtree.get_rows(ter_path)
                                   for ter_path
@@ -379,7 +399,6 @@ class bart:
         counts = []
 
         total_rules = 0
-        old_flat_idx = None
 
         for var in range(self.p):
             vals = np.unique(self.X[rows, var])
@@ -389,11 +408,6 @@ class bart:
             cuts = vals[:-1]
             n_cuts = int(cuts.size)
 
-            if var == old_variable:
-                matches = np.flatnonzero(cuts == old_value)
-                if matches.size:
-                    old_flat_idx = total_rules + int(matches[0])
-
             valid_vars.append(var)
             cut_values.append(cuts)
             counts.append(n_cuts)
@@ -402,12 +416,7 @@ class bart:
         if total_rules <= 1:
             return None
 
-        if old_flat_idx is None:
-            raise ValueError("Old splitting rule was not found among valid rules.")
-
         u = int(self.rng.integers(total_rules - 1))
-        if u >= old_flat_idx:
-            u += 1
 
         offset = 0
         for k, var in enumerate(valid_vars):
@@ -463,15 +472,15 @@ class bart:
 
     def _draw_mu(self, j: int):
         residuals = self._partial_residuals(j)
-        paths = self.trees[j].terminal_paths(growable=False)
-        for path in paths:
-            rows = self.trees[j].get_rows(path)
+        nodes = self.trees[j].terminal_nodes()
+        for node in nodes:
+            rows = node.rows
             denom = len(rows)*self.sigma_mu2 + self.sigma2
             mu = self.rng.normal(loc=(self.sigma_mu2
                                       * residuals[rows].sum())/denom,
                                  scale=np.sqrt(self.sigma2
                                                * self.sigma_mu2/denom))
-            self.trees[j].node_at(path).mu = mu
+            node.mu = mu
 
     def _draw_sigma(self):
         sse = np.sum((self.y - self.fitted_sums)**2)
@@ -482,10 +491,10 @@ class bart:
         return (v * self.y_scale) + self.y_shift
 
     def _partial_residuals(self, j):
-        return self.y - self.fitted_sums + self.training_predictions[:, j]
+        return self.y - self.fitted_sums + self.training_predictions[j, :]
 
     def _update_tps_and_fitted_sums_incremental(self, j: int):
-        old_tp = self.training_predictions[:, j].copy()
+        old_tp = self.training_predictions[j, :].copy()
         for node in self.trees[j].terminal_nodes():
-            self.training_predictions[node.rows, j] = node.mu
-        self.fitted_sums += self.training_predictions[:, j] - old_tp
+            self.training_predictions[j, node.rows] = node.mu
+        self.fitted_sums += self.training_predictions[j, :] - old_tp

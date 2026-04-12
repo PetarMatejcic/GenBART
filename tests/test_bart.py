@@ -62,12 +62,12 @@ def test_incremental_prediction_bookkeeping_matches_tree_predictions():
     model.sigma2 = 1.0
     model.sigma_mu2 = 1.0
     model.trees = [Tree(data=X) for _ in range(model.m)]
-    model.training_predictions = np.zeros((model.n, model.m))
+    model.training_predictions = np.zeros((model.m, model.n))
     model.fitted_sums = np.zeros(model.n)
 
     model.trees[0].root.mu = 1.25
     model._update_tps_and_fitted_sums_incremental(0)
-    assert np.allclose(model.training_predictions[:, 0], 1.25)
+    assert np.allclose(model.training_predictions[0, :], 1.25)
     assert np.allclose(model.fitted_sums, 1.25)
 
     model.trees[1] = model.trees[1].grow((), variable=0, value=1.5)

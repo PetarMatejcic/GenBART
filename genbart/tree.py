@@ -343,9 +343,12 @@ class Tree:
         terminals = []
         internals = []
         replacement = self._update_data_rows(replacement, terminals, internals)
-        return Tree(replacement, self.data), terminals, internals
+        if replacement is None:
+            return None, None, None
+        else:
+            return Tree(replacement, self.data), terminals, internals
 
-    def swap(self, path: tuple, swap=Literal["left", "right", "both"]):
+    def swap(self, path: tuple, swap: Literal["left", "right", "both"]):
         """Return a new tree with a parent-child split swap applied.
 
         The path must point to an internal parent node. The split rule at that
@@ -356,6 +359,7 @@ class Tree:
             raise ValueError("Path must point to the parent node which is to be swapped.")
         if swap == "left":
             child = self.node_at(path + (0, ))
+            
             replacement = Node.internal(variable=child.variable,
                                         value=child.value,
                                         left_node=Node.internal(parent.variable,
@@ -394,7 +398,10 @@ class Tree:
                                         rows=parent.rows)
 
         replacement = self._update_data_rows(replacement)
-        return Tree(replacement, self.data)
+        if replacement is None:
+            return None
+        else:
+            return Tree(replacement, self.data)
 
     def _predict(self, x):
         """Return the prediction for a single input vector.
@@ -496,10 +503,15 @@ class Tree:
             internals.append(node)
 
         variable = node.variable
-        value = node.value
         rows = node.rows
+        value = node.value
+
         left_mask = self.data[rows, variable] <= value
         rows_l = rows[left_mask]
+        rows_r = rows[~left_mask]
+        if rows_l.size == 0 or rows_r.size == 0:
+            return None
+
         if node.left.is_terminal():
             node_l = Node.terminal(node.left.mu, rows_l)
         else:
@@ -508,7 +520,6 @@ class Tree:
                                    node.left.left,
                                    node.left.right,
                                    rows_l)
-        rows_r = rows[~left_mask]
         if node.right.is_terminal():
             node_r = Node.terminal(node.right.mu, rows_r)
         else:
@@ -517,11 +528,30 @@ class Tree:
                                    node.right.left,
                                    node.right.right,
                                    rows_r)
+            
+        new_left = self._update_data_rows(node_l, terminals, internals)
+        if new_left is None:
+            return None
+        new_right = self._update_data_rows(node_r, terminals, internals)
+        if new_right is None:
+            return None
+
         return Node.internal(variable=variable,
                              value=value,
-                             left_node=self._update_data_rows(node_l, terminals, internals),
-                             right_node=self._update_data_rows(node_r, terminals, internals),
+                             left_node=new_left,
+                             right_node=new_right,
                              rows=node.rows)
+
+    def _map_to_value(self, rows: np.ndarray, variable: int, old_value: float):
+        vals = np.unique(self.data[rows, variable])
+        if vals.size <= 1:
+            return None
+
+        left_count = int(np.searchsorted(vals, old_value, side="right"))
+        if left_count == 0 or left_count == vals.size:
+            return None
+
+        return vals[left_count - 1]
 
     def _iter_terminal_node(self, node):
         if node.is_terminal():

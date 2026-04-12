@@ -4,3 +4,4 @@ GenTest/__pycache__
 *.pyc
 .pytest_cache
 timings/
+genbart/profilestats.py
