@@ -585,7 +585,7 @@ class Tree:
         node = self._set_node_cache(node)
         if node.is_terminal():
             if terminals is not None:
-                terminals.append(node)
+                terminals.append(node.rows)
             return node
         if internals is not None:
             internals.append(node)

@@ -318,11 +318,11 @@ class bart:
         proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].change(path, new_variable, new_split_idx)
         if proposed_subtree is None:
             return None, None, None
-        subtree_terminal_paths = [ter.rows for ter in subtree_terminals]
+        
         old_tree_terminals = [self.trees[j].get_rows(ter_path)
                               for ter_path
                               in self.trees[j].terminal_paths(path, False)]
-        log_likelihood_ratio = self._log_likelihood(subtree_terminal_paths,
+        log_likelihood_ratio = self._log_likelihood(subtree_terminals,
                                                     old_tree_terminals)
 
         old_tree_internals = [self.trees[j].node_at(path)
@@ -354,14 +354,11 @@ class bart:
         if proposed_subtree is None:
             return None, None, None
 
-        prop_subtree_terminals = [ter.rows
-                                  for ter
-                                  in subtree_terminals]
         old_tree_terminals = [self.trees[j].get_rows(ter_path)
                               for ter_path
                               in self.trees[j].terminal_paths(path, False)]
 
-        log_likelihood_ratio = self._log_likelihood(prop_subtree_terminals,
+        log_likelihood_ratio = self._log_likelihood(subtree_terminals,
                                                     old_tree_terminals)
 
 
