@@ -373,26 +373,29 @@ class bart:
         return proposed_subtree, mh_ratio, path
 
     def _sample_uniform_change_rule(self, node):
-        total_rules = int(node.eta_by_var[node.valid_vars].sum())
+        vars_ = node.valid_vars
+        counts = node.eta_by_var[vars_]
+        total_rules = int(counts.sum())
         if total_rules <= 1:
             return None
 
+        # index of current rule
+        cur_var_pos = int(np.where(vars_ == node.variable)[0][0])
+        cur_split_pos = int(np.where(node.split_values_by_var[node.variable] == node.value)[0][0])
+        cur_global = int(counts[:cur_var_pos].sum() + cur_split_pos)
+
         u = int(self.rng.integers(total_rules - 1))
+        if u >= cur_global:
+            u += 1
 
-        skipped_current = False
-        for var in node.valid_vars:
-            splits = node.split_values_by_var[var]
-            for value in splits:
-                if (not skipped_current
-                    and var == node.variable
-                    and value == node.value):
-                    skipped_current = True
-                    continue
+        prefix = np.cumsum(counts)
+        var_pos = int(np.searchsorted(prefix, u, side="right"))
+        prev = 0 if var_pos == 0 else int(prefix[var_pos - 1])
+        split_pos = u - prev
 
-                if u == 0:
-                    return int(var), value
-                u -= 1
-        raise RuntimeError("Failed to decode sampled splitting rule.")
+        var = int(vars_[var_pos])
+        value = node.split_values_by_var[var][split_pos]
+        return var, value
 
     def _log_likelihood(self,
                         new_rows: list[np.ndarray],
