@@ -313,9 +313,10 @@ class bart:
         if not possible_paths:
             return None, None, None
         path = possible_paths[self.rng.choice(len(possible_paths))]
-        old_variable = self.trees[j].node_at(path).variable
-        old_value = self.trees[j].node_at(path).value
-        rows = self.trees[j].get_rows(path)
+        node = self.trees[j].node_at(path)
+        old_variable = node.variable
+        old_value = node.value
+        rows = node.rows
         new_rule = self._sample_uniform_change_rule(rows, old_variable, old_value)
         if new_rule is None:
             return None, None, None
@@ -344,28 +345,26 @@ class bart:
         if not possible_paths:
             return None, None, None
         path = possible_paths[self.rng.choice(len(possible_paths))]
-        children = [self.trees[j].node_at(path + (0, )),
-                    self.trees[j].node_at(path + (1, ))]
+        parent = self.trees[j].node_at(path)
+        children = [parent.left,
+                    parent.right]
         if children[0].is_terminal():
-            proposed_subtree = self.trees[j].swap(path, swap="right")
+            proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].swap(path, swap="right")
         elif children[1].is_terminal():
-            proposed_subtree = self.trees[j].swap(path, swap="left")
+            proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].swap(path, swap="left")
         else:
             if children[0] == children[1]:
-                proposed_subtree = self.trees[j].swap(path, swap="both")
+                proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].swap(path, swap="both")
             else:
                 child = self.rng.choice(["left", "right"])
-                proposed_subtree = self.trees[j].swap(path, swap=child)
+                proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].swap(path, swap=child)
         
         if proposed_subtree is None:
             return None, None, None
 
-        prop_subtree_terminals = [proposed_subtree.get_rows(ter_path)
-                                  for ter_path
-                                  in proposed_subtree.terminal_paths(growable=False)]
-        for ter_rows in prop_subtree_terminals:
-            if ter_rows.size == 0:
-                return None, None, None
+        prop_subtree_terminals = [ter.rows
+                                  for ter
+                                  in subtree_terminals]
         old_tree_terminals = [self.trees[j].get_rows(ter_path)
                               for ter_path
                               in self.trees[j].terminal_paths(path, False)]
@@ -374,11 +373,10 @@ class bart:
                                                     prop_subtree_terminals,
                                                     old_tree_terminals)
 
-        prop_subtree_internals = [proposed_subtree.node_at(path)
-                               for path in proposed_subtree.internal_paths()]
+
         old_tree_internals = [self.trees[j].node_at(path)
                               for path in self.trees[j].internal_paths(path)]
-        log_tree_ratio = self._log_prior_ratio(prop_subtree_internals,
+        log_tree_ratio = self._log_prior_ratio(subtree_internals,
                                                old_tree_internals)
 
         mh_ratio = log_likelihood_ratio + log_tree_ratio

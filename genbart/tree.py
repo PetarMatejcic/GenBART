@@ -396,12 +396,13 @@ class Tree:
                                                                  child_r.right,
                                                                  child_r.rows),
                                         rows=parent.rows)
-
-        replacement = self._update_data_rows(replacement)
+        terminals = []
+        internals = []
+        replacement = self._update_data_rows(replacement, terminals, internals)
         if replacement is None:
-            return None
+            return None, None, None
         else:
-            return Tree(replacement, self.data)
+            return Tree(replacement, self.data), terminals, internals
 
     def _predict(self, x):
         """Return the prediction for a single input vector.
