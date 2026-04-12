@@ -494,7 +494,7 @@ class bart:
         return self.y - self.fitted_sums + self.training_predictions[j, :]
 
     def _update_tps_and_fitted_sums_incremental(self, j: int):
-        old_tp = self.training_predictions[j, :].copy()
+        self.fitted_sums -= self.training_predictions[j, :]
         for node in self.trees[j].terminal_nodes():
             self.training_predictions[j, node.rows] = node.mu
-        self.fitted_sums += self.training_predictions[j, :] - old_tp
+        self.fitted_sums += self.training_predictions[j, :]

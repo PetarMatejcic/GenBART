@@ -542,11 +542,6 @@ class Tree:
                              right_node=new_right,
                              rows=node.rows)
 
-    def _map_to_value(self, rows: np.ndarray, variable: int, old_value: float):
-        vals = np.unique(self.data[rows, variable])
-        if vals.size <= 1:
-            return None
-
         left_count = int(np.searchsorted(vals, old_value, side="right"))
         if left_count == 0 or left_count == vals.size:
             return None
