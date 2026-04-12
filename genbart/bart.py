@@ -227,14 +227,15 @@ class bart:
             if b_ == 0:
                 return None, None, None 
             variable = node.valid_vars[self.rng.integers(b_)]
-            splits = node.split_values_by_var[variable]
-            eta_ = node.eta_by_var[variable]
-            value = splits[self.rng.integers(eta_)]
+            eta_ = int(node.eta_by_var[variable])
+            split_idx = int(self.rng.integers(eta_))
 
         with self._section("grow.mh_ratio"):
             proposed_subtree = self.trees[j].grow(path=path,
                                             variable=variable,
-                                            value=value)
+                                            split_idx=split_idx)
+            if proposed_subtree is None:
+                return None, None, None
             log_transition_ratio = (np.log(self.move_distribution[1])
                                     + np.log(p_)
                                     + np.log(b_)
@@ -309,12 +310,12 @@ class bart:
         path = possible_paths[self.rng.choice(len(possible_paths))]
         node = self.trees[j].node_at(path)
 
-        new_rule = self._sample_uniform_change_rule(node)
+        new_rule = self._sample_uniform_change_rule(node, self.trees[j])
         if new_rule is None:
             return None, None, None
-        new_variable, new_value = new_rule
+        new_variable, new_split_idx = new_rule
 
-        proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].change(path, new_variable, new_value)
+        proposed_subtree, subtree_terminals, subtree_internals = self.trees[j].change(path, new_variable, new_split_idx)
         if proposed_subtree is None:
             return None, None, None
         subtree_terminal_paths = [ter.rows for ter in subtree_terminals]
@@ -372,16 +373,19 @@ class bart:
         mh_ratio = log_likelihood_ratio + log_tree_ratio
         return proposed_subtree, mh_ratio, path
 
-    def _sample_uniform_change_rule(self, node):
+    def _sample_uniform_change_rule(self, node, tree):
         vars_ = node.valid_vars
         counts = node.eta_by_var[vars_]
         total_rules = int(counts.sum())
         if total_rules <= 1:
             return None
 
-        # index of current rule
         cur_var_pos = int(np.where(vars_ == node.variable)[0][0])
-        cur_split_pos = int(np.where(node.split_values_by_var[node.variable] == node.value)[0][0])
+        cur_split_pos = tree.split_pos_of_value(
+            node.rows_by_var[node.variable],
+            node.variable,
+            node.value,
+        )
         cur_global = int(counts[:cur_var_pos].sum() + cur_split_pos)
 
         u = int(self.rng.integers(total_rules - 1))
@@ -391,11 +395,10 @@ class bart:
         prefix = np.cumsum(counts)
         var_pos = int(np.searchsorted(prefix, u, side="right"))
         prev = 0 if var_pos == 0 else int(prefix[var_pos - 1])
-        split_pos = u - prev
+        split_pos = int(u - prev)
 
         var = int(vars_[var_pos])
-        value = node.split_values_by_var[var][split_pos]
-        return var, value
+        return var, split_pos
 
     def _log_likelihood(self,
                         new_rows: list[np.ndarray],

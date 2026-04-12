@@ -29,8 +29,8 @@ class Node:
     rows: np.ndarray
     rows_by_var: list[np.ndarray]
     valid_vars: np.ndarray
-    split_values_by_var: list[np.ndarray]
     eta_by_var: np.ndarray
+    split_idx: int | None
 
     def __init__(self,
                  mu: float | None = None,
@@ -39,7 +39,8 @@ class Node:
                  left: "Node | None" = None,
                  right: "Node | None" = None,
                  rows: np.ndarray | None = None,
-                 rows_by_var: list[np.ndarray] | None = None):
+                 rows_by_var: list[np.ndarray] | None = None,
+                 split_idx: int | None = None):
         self.mu = mu
         self.variable = variable
         self.value = value
@@ -51,8 +52,8 @@ class Node:
             self.rows = np.asarray(rows, dtype=np.intp)
         self.rows_by_var = rows_by_var
         self.valid_vars = 0
-        self.split_values_by_var = 0
         self.eta_by_var = 0
+        self.split_idx = split_idx
 
     @classmethod
     def internal(cls,
@@ -61,7 +62,8 @@ class Node:
                  left_node: Node,
                  right_node: Node,
                  rows,
-                 rows_by_var):
+                 rows_by_var,
+                 split_idx):
         """Create an internal node.
 
         The returned node stores a split rule and references to its left and
@@ -73,6 +75,7 @@ class Node:
                     right=right_node,
                     rows=rows,
                     rows_by_var=rows_by_var,
+                    split_idx=split_idx,
                     mu=None)
 
     @classmethod
@@ -152,7 +155,7 @@ class Tree:
             self.root = Node.terminal(0.0,
                                       np.arange(data.shape[0], dtype=np.intp),
                                       rows_by_var)
-            self.root.valid_vars, self.root.split_values_by_var, self.root.eta_by_var = self._build_node_cache(rows_by_var)
+            self.root.valid_vars, self.root.eta_by_var = self._build_node_cache(rows_by_var)
         else:
             self.root = root
         self._membership_stamp = np.zeros(self.data.shape[0], dtype=np.int32)
@@ -313,7 +316,7 @@ class Tree:
     def grow(self,
              path: tuple,
              variable=0,
-             value=0):
+             split_idx=0):
         """Return a new tree with a terminal node split into two children.
 
         The node at ``path`` must be terminal. It is replaced by an internal
@@ -322,13 +325,14 @@ class Tree:
         node = self.node_at(path)
         if node.is_internal():
             raise ValueError("Cannot grow on an internal node.")
-        splits = node.split_values_by_var[variable]
-        if splits is None or not np.any(splits == value):
+        eta = int(node.eta_by_var[variable])
+        if eta <= 0 or split_idx < 0 or split_idx >= eta:
             raise ValueError("Split is not valid for this node.")
+        value = self.split_value_at(node.rows_by_var[variable], variable, split_idx)
         
         parts = self._partition_rows_by_var(node.rows_by_var, variable, value)
         if parts is None:
-            return None
+            raise ValueError(f"Inconsistent grow split: var={variable}, split_idx={split_idx}, value={value}")
         left_by_var, right_by_var = parts
 
         left_node = Node.terminal(0.0, left_by_var[0], left_by_var)
@@ -341,9 +345,9 @@ class Tree:
                                     left_node=left_node,
                                     right_node=right_node,
                                     rows=node.rows,
-                                    rows_by_var=node.rows_by_var)
+                                    rows_by_var=node.rows_by_var,
+                                    split_idx=split_idx)
         replacement.valid_vars = node.valid_vars
-        replacement.split_values_by_var = node.split_values_by_var
         replacement.eta_by_var = node.eta_by_var
         return Tree(replacement, self.data)
 
@@ -358,11 +362,10 @@ class Tree:
             raise ValueError("Cannot prune an internal node.")
         replacement = Node.terminal(mu, node.rows, node.rows_by_var)
         replacement.valid_vars = node.valid_vars
-        replacement.split_values_by_var = node.split_values_by_var
         replacement.eta_by_var = node.eta_by_var
         return Tree(replacement, self.data)
 
-    def change(self, path: tuple, variable=0, value=0):
+    def change(self, path: tuple, variable=0, split_idx=0):
         """Return a new tree with an updated split rule.
 
         The node at ``path`` must be internal. Its children are kept, but its
@@ -371,12 +374,18 @@ class Tree:
         old_node = self.node_at(path)
         if old_node.is_terminal():
             raise ValueError("Cannot change split rule of a terminal node.")
+        eta = int(old_node.eta_by_var[variable])
+        if eta <= 0 or split_idx < 0 or split_idx >= eta:
+            raise ValueError("Split index is not valid for this node.")
+        
+        value = self.split_value_at(old_node.rows_by_var[variable], variable, split_idx)
         replacement = Node.internal(variable=variable,
                                     value=value,
                                     left_node=old_node.left,
                                     right_node=old_node.right,
                                     rows=old_node.rows,
-                                    rows_by_var=old_node.rows_by_var)
+                                    rows_by_var=old_node.rows_by_var,
+                                    split_idx=split_idx)
         terminals = []
         internals = []
         replacement = self._update_subtree(replacement, terminals, internals)
@@ -404,10 +413,12 @@ class Tree:
                                                                 child.left,
                                                                 child.right,
                                                                 [],
-                                                                []),
+                                                                [],
+                                                                parent.split_idx),
                                         right_node=parent.right,
                                         rows=parent.rows,
-                                        rows_by_var=parent.rows_by_var)
+                                        rows_by_var=parent.rows_by_var,
+                                        split_idx=child.split_idx)
         elif swap == "right":
             child = self.node_at(path + (1, ))
             replacement = Node.internal(variable=child.variable,
@@ -418,9 +429,11 @@ class Tree:
                                                                  child.left,
                                                                  child.right,
                                                                  [],
-                                                                 []),
+                                                                 [],
+                                                                 parent.split_idx),
                                         rows=parent.rows,
-                                        rows_by_var=parent.rows_by_var)
+                                        rows_by_var=parent.rows_by_var,
+                                        split_idx=child.split_idx)
         else:
             child_l = self.node_at(path + (0, ))
             child_r = self.node_at(path + (1, ))
@@ -431,15 +444,18 @@ class Tree:
                                                                 child_l.left,
                                                                 child_l.right,
                                                                 [],
-                                                                []),
+                                                                [],
+                                                                parent.split_idx),
                                         right_node=Node.internal(parent.variable,
                                                                  parent.value,
                                                                  child_r.left,
                                                                  child_r.right,
                                                                  [],
-                                                                 []),
+                                                                 [],
+                                                                 parent.split_idx),
                                         rows=parent.rows,
-                                        rows_by_var=parent.rows_by_var)
+                                        rows_by_var=parent.rows_by_var,
+                                        split_idx=child_l.split_idx)
         terminals = []
         internals = []
         replacement = self._update_subtree(replacement, terminals, internals)
@@ -531,7 +547,37 @@ class Tree:
             right=right,
             mu=mu,
         )
+        
+    def split_value_at(self, ord_v: np.ndarray, variable: int, split_idx: int):
+        x = self.data[ord_v, variable]
+        change_idx = np.flatnonzero(x[1:] != x[:-1])
 
+        if split_idx < 0 or split_idx >= change_idx.size:
+            raise ValueError(
+                f"Inconsistent split cache for var={variable}: "
+                f"split_idx={split_idx}, available={change_idx.size}, rows={ord_v.size}")
+        return x[change_idx[split_idx]]
+
+    def split_value_at(self, ord_v: np.ndarray, variable: int, split_idx: int):
+        x = self.data[ord_v, variable]
+        change_idx = np.flatnonzero(x[1:] != x[:-1])
+        return x[change_idx[split_idx]]
+
+    def split_pos_of_value(self, ord_v: np.ndarray, variable: int, value: float):
+        x = self.data[ord_v, variable]
+        change_idx = np.flatnonzero(x[1:] != x[:-1])
+
+        # last occurrence of value in sorted x
+        last = np.searchsorted(x, value, side="right") - 1
+        if last < 0 or x[last] != value:
+            raise ValueError("Current split value is not present in node rows.")
+
+        pos = np.searchsorted(change_idx, last, side="left")
+        if pos >= change_idx.size or change_idx[pos] != last:
+            raise ValueError("Current split value is not a valid split for this node.")
+
+        return int(pos)
+    
     def _update_subtree(self,
                           node: Node,
                           terminals: list[Node] = None,
@@ -544,10 +590,19 @@ class Tree:
         if internals is not None:
             internals.append(node)
         
-        splits = node.split_values_by_var[node.variable]
-        if splits is None or not np.any(splits == node.value):
+        eta = int(node.eta_by_var[node.variable])
+        if eta <= 0:
             return None
-        
+        ord_v = node.rows_by_var[node.variable]
+        x = self.data[ord_v, node.variable]
+        last = np.searchsorted(x, node.value, side="right") - 1
+        if last < 0 or x[last] != node.value:
+            return None
+        change_idx = np.flatnonzero(x[1:] != x[:-1])
+        pos = np.searchsorted(change_idx, last, side="left")
+        if pos >= change_idx.size or change_idx[pos] != last:
+            return None
+
         parts = self._partition_rows_by_var(node.rows_by_var, node.variable, node.value)
         if parts is None:
             return None
@@ -561,7 +616,8 @@ class Tree:
                                        node.left.left,
                                        node.left.right,
                                        left_by_var[0],
-                                       left_by_var)
+                                       left_by_var,
+                                       node.left.split_idx)
         if node.right.is_terminal():
             right_child = Node.terminal(node.right.mu, right_by_var[0], right_by_var)
         else:
@@ -570,7 +626,8 @@ class Tree:
                                        node.right.left,
                                        node.right.right,
                                        right_by_var[0],
-                                       right_by_var)
+                                       right_by_var,
+                                       node.right.split_idx)
         
         new_left = self._update_subtree(left_child, terminals, internals)
         if new_left is None:
@@ -585,15 +642,14 @@ class Tree:
                             left_node=new_left,
                             right_node=new_right,
                             rows=node.rows,
-                            rows_by_var=node.rows_by_var)
+                            rows_by_var=node.rows_by_var,
+                            split_idx=node.split_idx)
         out.valid_vars = node.valid_vars
-        out.split_values_by_var = node.split_values_by_var
         out.eta_by_var = node.eta_by_var
         return out
     
     def _build_node_cache(self, rows_by_var):
         p = self.data.shape[1]
-        split_values_by_var = [None] * p
         eta_by_var = np.zeros(p, dtype=np.int32)
         valid_vars = []
 
@@ -601,14 +657,16 @@ class Tree:
             x = self.data[ord_v, var]
             if x.size <= 1:
                 continue
+
             change_idx = np.flatnonzero(x[1:] != x[:-1])
-            if change_idx.size == 0:
+            eta = int(change_idx.size)
+            if eta == 0:
                 continue
-            splits = x[change_idx]
-            split_values_by_var[var] = splits
-            eta_by_var[var] = splits.size
+
+            eta_by_var[var] = eta
             valid_vars.append(var)
-        return np.asarray(valid_vars, dtype=np.int32), split_values_by_var, eta_by_var
+
+        return np.asarray(valid_vars, dtype=np.int32), eta_by_var
     
     def _partition_rows_by_var(self, rows_by_var, variable, value):
         ord_split = rows_by_var[variable]
@@ -635,9 +693,8 @@ class Tree:
         return left_by_var, right_by_var
     
     def _set_node_cache(self, node):
-        node.rows = node.rows_by_var[0].copy()
-        node.valid_vars, node.split_values_by_var, node.eta_by_var = \
-            self._build_node_cache(node.rows_by_var)
+        node.rows = node.rows_by_var[0]
+        node.valid_vars, node.eta_by_var = self._build_node_cache(node.rows_by_var)
         return node
 
     def _iter_terminal_node(self, node):
