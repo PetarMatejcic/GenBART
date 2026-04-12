@@ -27,6 +27,10 @@ class Node:
     value: float | None
     mu: float | None
     rows: np.ndarray
+    rows_by_var: list[np.ndarray]
+    valid_vars: np.ndarray
+    split_values_by_var: list[np.ndarray]
+    eta_by_var: np.ndarray
 
     def __init__(self,
                  mu: float | None = None,
@@ -34,7 +38,8 @@ class Node:
                  value: float | None = None,
                  left: "Node | None" = None,
                  right: "Node | None" = None,
-                 rows: np.ndarray | None = None):
+                 rows: np.ndarray | None = None,
+                 rows_by_var: list[np.ndarray] | None = None):
         self.mu = mu
         self.variable = variable
         self.value = value
@@ -44,6 +49,10 @@ class Node:
             self.rows = None
         else:
             self.rows = np.asarray(rows, dtype=np.intp)
+        self.rows_by_var = rows_by_var
+        self.valid_vars = 0
+        self.split_values_by_var = 0
+        self.eta_by_var = 0
 
     @classmethod
     def internal(cls,
@@ -51,7 +60,8 @@ class Node:
                  value: float,
                  left_node: Node,
                  right_node: Node,
-                 rows):
+                 rows,
+                 rows_by_var):
         """Create an internal node.
 
         The returned node stores a split rule and references to its left and
@@ -62,18 +72,21 @@ class Node:
                     left=left_node,
                     right=right_node,
                     rows=rows,
+                    rows_by_var=rows_by_var,
                     mu=None)
 
     @classmethod
     def terminal(cls,
                  mu: float,
-                 rows):
+                 rows,
+                 rows_by_var):
         """Create a terminal node.
 
         The returned node stores ``mu`` value and has no children.
         """
         return Node(mu=mu,
                     rows=rows,
+                    rows_by_var=rows_by_var,
                     left=None,
                     right=None,
                     variable=None,
@@ -132,12 +145,16 @@ class Tree:
 
     def __init__(self,
                  root: Node | None = None,
-                 data: np.ndarray | None = None):
+                 data: np.ndarray | None = None,
+                 rows_by_var: np.ndarray | None = None):
+        self.data = data
         if root is None:
-            self.root = Node.terminal(0.0, np.arange(data.shape[0], dtype=np.intp))
+            self.root = Node.terminal(0.0,
+                                      np.arange(data.shape[0], dtype=np.intp),
+                                      rows_by_var)
+            self.root.valid_vars, self.root.split_values_by_var, self.root.eta_by_var = self._build_node_cache(rows_by_var)
         else:
             self.root = root
-        self.data = data
 
     def node_at(self, path: tuple):
         """Return the node at the given path.
@@ -300,19 +317,32 @@ class Tree:
         The node at ``path`` must be terminal. It is replaced by an internal
         node with the given split rule and two new terminal children.
         """
-        if self.node_at(path).is_internal():
+        node = self.node_at(path)
+        if node.is_internal():
             raise ValueError("Cannot grow on an internal node.")
-        rows = self.get_rows(path)
-        left_mask = self.data[rows, variable] <= value
-        rows_l = rows[left_mask]
-        rows_r = rows[~left_mask]
+        splits = node.split_values_by_var[variable]
+        if splits is None or not np.any(splits == value):
+            raise ValueError("Split is not valid for this node.")
+        
+        parts = self._partition_rows_by_var(node.rows_by_var, variable, value)
+        if parts is None:
+            return None
+        left_by_var, right_by_var = parts
+
+        left_node = Node.terminal(0.0, left_by_var[0], left_by_var)
+        self._set_node_cache(left_node)
+        right_node = Node.terminal(0.0, right_by_var[0], right_by_var)
+        self._set_node_cache(right_node)
+
         replacement = Node.internal(variable=variable,
                                     value=value,
-                                    left_node=Node.terminal(0.0,
-                                                            rows_l),
-                                    right_node=Node.terminal(0.0,
-                                                             rows_r),
-                                    rows=rows)
+                                    left_node=left_node,
+                                    right_node=right_node,
+                                    rows=node.rows,
+                                    rows_by_var=node.rows_by_var)
+        replacement.valid_vars = node.valid_vars
+        replacement.split_values_by_var = node.split_values_by_var
+        replacement.eta_by_var = node.eta_by_var
         return Tree(replacement, self.data)
 
     def prune(self, path: tuple, mu=0.0):
@@ -321,9 +351,13 @@ class Tree:
         The subtree at ``path`` is replaced by a terminal node with leaf value
         ``mu``.
         """
-        if self.node_at(path).is_terminal():
+        node = self.node_at(path)
+        if node.is_terminal():
             raise ValueError("Cannot prune an internal node.")
-        replacement = Node.terminal(mu, self.get_rows(path))
+        replacement = Node.terminal(mu, node.rows, node.rows_by_var)
+        replacement.valid_vars = node.valid_vars
+        replacement.split_values_by_var = node.split_values_by_var
+        replacement.eta_by_var = node.eta_by_var
         return Tree(replacement, self.data)
 
     def change(self, path: tuple, variable=0, value=0):
@@ -339,10 +373,11 @@ class Tree:
                                     value=value,
                                     left_node=old_node.left,
                                     right_node=old_node.right,
-                                    rows=old_node.rows)
+                                    rows=old_node.rows,
+                                    rows_by_var=old_node.rows_by_var)
         terminals = []
         internals = []
-        replacement = self._update_data_rows(replacement, terminals, internals)
+        replacement = self._update_subtree(replacement, terminals, internals)
         if replacement is None:
             return None, None, None
         else:
@@ -357,18 +392,20 @@ class Tree:
         parent = self.node_at(path)
         if parent.is_terminal():
             raise ValueError("Path must point to the parent node which is to be swapped.")
+        
         if swap == "left":
             child = self.node_at(path + (0, ))
-            
             replacement = Node.internal(variable=child.variable,
                                         value=child.value,
                                         left_node=Node.internal(parent.variable,
                                                                 parent.value,
                                                                 child.left,
                                                                 child.right,
+                                                                [],
                                                                 []),
                                         right_node=parent.right,
-                                        rows=parent.rows)
+                                        rows=parent.rows,
+                                        rows_by_var=parent.rows_by_var)
         elif swap == "right":
             child = self.node_at(path + (1, ))
             replacement = Node.internal(variable=child.variable,
@@ -378,8 +415,10 @@ class Tree:
                                                                  parent.value,
                                                                  child.left,
                                                                  child.right,
-                                                                 child.rows),
-                                        rows=parent.rows)
+                                                                 [],
+                                                                 []),
+                                        rows=parent.rows,
+                                        rows_by_var=parent.rows_by_var)
         else:
             child_l = self.node_at(path + (0, ))
             child_r = self.node_at(path + (1, ))
@@ -389,16 +428,19 @@ class Tree:
                                                                 parent.value,
                                                                 child_l.left,
                                                                 child_l.right,
-                                                                child_l.rows),
+                                                                [],
+                                                                []),
                                         right_node=Node.internal(parent.variable,
                                                                  parent.value,
                                                                  child_r.left,
                                                                  child_r.right,
-                                                                 child_r.rows),
-                                        rows=parent.rows)
+                                                                 [],
+                                                                 []),
+                                        rows=parent.rows,
+                                        rows_by_var=parent.rows_by_var)
         terminals = []
         internals = []
-        replacement = self._update_data_rows(replacement, terminals, internals)
+        replacement = self._update_subtree(replacement, terminals, internals)
         if replacement is None:
             return None, None, None
         else:
@@ -488,66 +530,112 @@ class Tree:
             mu=mu,
         )
 
-    def _update_data_rows(self, node: Node,
+    def _update_subtree(self,
+                          node: Node,
                           terminals: list[Node] = None,
                           internals: list[Node] = None):
-        """Return a subtree with data rows updated.
-
-        Data rows are updated recursevly from node downwards. Used
-        for calculating replacement trees in change and swap functions.
-        """
+        node = self._set_node_cache(node)
         if node.is_terminal():
             if terminals is not None:
                 terminals.append(node)
             return node
         if internals is not None:
             internals.append(node)
-
-        variable = node.variable
-        rows = node.rows
-        value = node.value
-
-        left_mask = self.data[rows, variable] <= value
-        rows_l = rows[left_mask]
-        rows_r = rows[~left_mask]
-        if rows_l.size == 0 or rows_r.size == 0:
+        
+        splits = node.split_values_by_var[node.variable]
+        if splits is None or not np.any(splits == node.value):
             return None
-
+        
+        parts = self._partition_rows_by_var(node.rows_by_var, node.variable, node.value)
+        if parts is None:
+            return None
+        left_by_var, right_by_var = parts
+        
         if node.left.is_terminal():
-            node_l = Node.terminal(node.left.mu, rows_l)
+            left_child = Node.terminal(node.left.mu, left_by_var[0], left_by_var)
         else:
-            node_l = Node.internal(node.left.variable,
-                                   node.left.value,
-                                   node.left.left,
-                                   node.left.right,
-                                   rows_l)
+            left_child = Node.internal(node.left.variable,
+                                       node.left.value,
+                                       node.left.left,
+                                       node.left.right,
+                                       left_by_var[0],
+                                       left_by_var)
         if node.right.is_terminal():
-            node_r = Node.terminal(node.right.mu, rows_r)
+            right_child = Node.terminal(node.right.mu, right_by_var[0], right_by_var)
         else:
-            node_r = Node.internal(node.right.variable,
-                                   node.right.value,
-                                   node.right.left,
-                                   node.right.right,
-                                   rows_r)
-            
-        new_left = self._update_data_rows(node_l, terminals, internals)
+            right_child = Node.internal(node.right.variable,
+                                       node.right.value,
+                                       node.right.left,
+                                       node.right.right,
+                                       right_by_var[0],
+                                       right_by_var)
+        
+        new_left = self._update_subtree(left_child, terminals, internals)
         if new_left is None:
             return None
-        new_right = self._update_data_rows(node_r, terminals, internals)
+
+        new_right = self._update_subtree(right_child, terminals, internals)
         if new_right is None:
             return None
+        
+        out = Node.internal(variable=node.variable,
+                            value=node.value,
+                            left_node=new_left,
+                            right_node=new_right,
+                            rows=node.rows,
+                            rows_by_var=node.rows_by_var)
+        out.valid_vars = node.valid_vars
+        out.split_values_by_var = node.split_values_by_var
+        out.eta_by_var = node.eta_by_var
+        return out
+    
+    def _build_node_cache(self, rows_by_var):
+        p = self.data.shape[1]
+        split_values_by_var = [None] * p
+        eta_by_var = np.zeros(p, dtype=np.int32)
+        valid_vars = []
 
-        return Node.internal(variable=variable,
-                             value=value,
-                             left_node=new_left,
-                             right_node=new_right,
-                             rows=node.rows)
+        for var, ord_v in enumerate(rows_by_var):
+            x = self.data[ord_v, var]
+            if x.size <= 1:
+                continue
+            change_idx = np.flatnonzero(x[1:] != x[:-1])
+            if change_idx.size == 0:
+                continue
+            splits = x[change_idx]
+            split_values_by_var[var] = splits
+            eta_by_var[var] = splits.size
+            valid_vars.append(var)
+        return np.asarray(valid_vars, dtype=np.int32), split_values_by_var, eta_by_var
+    
+    def _partition_rows_by_var(self, rows_by_var, variable, value):
+        ord_split = rows_by_var[variable]
+        x_split = self.data[ord_split, variable]
 
-        left_count = int(np.searchsorted(vals, old_value, side="right"))
-        if left_count == 0 or left_count == vals.size:
+        left_mask_split = x_split <= value
+        left_rows = ord_split[left_mask_split]
+
+        is_left = np.zeros(self.data.shape[0], dtype=bool)
+        is_left[left_rows] = True
+
+        left_by_var = []
+        right_by_var = []
+
+        for ord_u in rows_by_var:
+            mask = is_left[ord_u]
+            left_by_var.append(ord_u[mask])
+            right_by_var.append(ord_u[~mask])
+
+        if left_by_var[0].size == 0 or right_by_var[0].size == 0:
             return None
 
-        return vals[left_count - 1]
+        return left_by_var, right_by_var
+    
+    def _set_node_cache(self, node):
+        node.rows = node.rows_by_var[0].copy()
+        node.valid_vars, node.split_values_by_var, node.eta_by_var = \
+            self._build_node_cache(node.rows_by_var)
+        return node
 
     def _iter_terminal_node(self, node):
         if node.is_terminal():

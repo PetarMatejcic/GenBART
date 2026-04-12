@@ -80,7 +80,8 @@ class bart:
         self.n, self.p = self.X.shape
 
         # Initializing trees.
-        self.trees = [Tree(data=self.X) for _ in range(self.m)]
+        rows_by_var = [np.argsort(self.X[:, var], kind="mergesort") for var in range(self.p)]
+        self.trees = [Tree(data=self.X, rows_by_var=rows_by_var) for _ in range(self.m)]
 
         # Initializing mu_ij|T_j prior ~ N(0, sigma_mu2)
         self.sigma_mu2 = (0.5 / (self.k * np.sqrt(self.m)))**2
@@ -214,51 +215,49 @@ class bart:
         return False
 
     def _propose_tree_grow(self, j: int):
-        possible_paths = self.trees[j].terminal_paths()
-        if not possible_paths:
-            return None, None, None
-        p_ = len(possible_paths)
-        path = possible_paths[self.rng.choice(p_)]
-        rows = self.trees[j].get_rows(path)
-        value_counts = {}
-        for var in range(self.p):
-            vals = np.unique(self.X[rows, var])
-            if vals.size > 1:
-                value_counts[var] = vals
-        possible_variables = list(value_counts.keys())
-        b_ = len(possible_variables)
-        if b_ < 1:
-            return None, None, None
-        variable = possible_variables[self.rng.choice(b_)]
-        eta_ = len(value_counts[variable]) - 1
-        value = value_counts[variable][self.rng.choice(eta_)]
+        with self._section("grow.propose"):
+            possible_paths = self.trees[j].terminal_paths()
+            if not possible_paths:
+                return None, None, None
+            p_ = len(possible_paths) 
+            path = possible_paths[self.rng.choice(p_)]
+            node = self.trees[j].node_at(path)
+            b_ = len(node.valid_vars)
+            if b_ == 0:
+                return None, None, None 
+            variable = node.valid_vars[self.rng.integers(b_)]
+            splits = node.split_values_by_var[variable]
+            eta_ = node.eta_by_var[variable]
+            value = splits[self.rng.integers(eta_)]
 
-        proposed_subtree = self.trees[j].grow(path=path,
-                                           variable=variable,
-                                           value=value)
-        log_transition_ratio = (np.log(self.move_distribution[1])
-                                + np.log(p_)
-                                + np.log(b_)
-                                + np.log(eta_)
-                                - np.log(self.move_distribution[0])
-                                - np.log(max(1, len(self.trees[j].prunable_paths()))))
+        with self._section("grow.mh_ratio"):
+            proposed_subtree = self.trees[j].grow(path=path,
+                                            variable=variable,
+                                            value=value)
+            log_transition_ratio = (np.log(self.move_distribution[1])
+                                    + np.log(p_)
+                                    + np.log(b_)
+                                    + np.log(eta_)
+                                    - np.log(self.move_distribution[0])
+                                    - np.log(max(1, len(self.trees[j].prunable_paths()))))
 
-        rows_l = proposed_subtree.get_rows((0, ))
-        rows_r = proposed_subtree.get_rows((1, ))
-        log_likelihood_ratio = self._log_likelihood(j,
-                                                    [rows_l, rows_r],
-                                                    [rows])
+            rows = node.rows
+            rows_l = proposed_subtree.get_rows((0, ))
+            rows_r = proposed_subtree.get_rows((1, ))
+            log_likelihood_ratio = self._log_likelihood(j,
+                                                        [rows_l, rows_r],
+                                                        [rows])
 
-        d = len(path)
-        log_tree_ratio = (np.log(self.alpha)
-                          + 2.0*np.log(1 - self._p_split(d+1))
-                          - np.log(((1+d)**self.beta) - self.alpha)
-                          - np.log(b_)
-                          - np.log(eta_))
+            d = len(path)
+            log_tree_ratio = (np.log(self.alpha)
+                            + 2.0*np.log(1 - self._p_split(d+1))
+                            - np.log(((1+d)**self.beta) - self.alpha)
+                            - np.log(b_)
+                            - np.log(eta_))
 
-        mh_ratio = (log_transition_ratio
-                    + log_likelihood_ratio
-                    + log_tree_ratio)
+            mh_ratio = (log_transition_ratio
+                        + log_likelihood_ratio
+                        + log_tree_ratio)
         return proposed_subtree, mh_ratio, path
 
     def _propose_tree_prune(self, j: int):
@@ -266,6 +265,8 @@ class bart:
         if len(possible_paths) < 1:
             return None, None, None
         path = possible_paths[self.rng.choice(len(possible_paths))]
+        node = self.trees[j].node_at(path)
+
         rows = self.trees[j].get_rows(path)
         rows_l = self.trees[j].get_rows(path + (0, ))
         rows_r = self.trees[j].get_rows(path + (1, ))
@@ -275,15 +276,9 @@ class bart:
               - (len(rows_l) > 1)
               - (len(rows_r) > 1)
               + 1)
-        value_count_dict = {}
-        for var in range(self.p):
-            vals = np.unique(self.X[rows, var])
-            if vals.size > 1:
-                value_count_dict[var] = vals
-        possible_variables = list(value_count_dict.keys())
-        p_ = len(possible_variables)
-        possible_values = value_count_dict[old_variable]
-        eta_ = len(possible_values) - 1
+        
+        p_ = len(node.valid_vars)
+        eta_ = int(node.eta_by_var[old_variable])
 
         log_transition_ratio = (np.log(self.move_distribution[0])
                                 + np.log(len(possible_paths))
@@ -314,10 +309,8 @@ class bart:
             return None, None, None
         path = possible_paths[self.rng.choice(len(possible_paths))]
         node = self.trees[j].node_at(path)
-        old_variable = node.variable
-        old_value = node.value
-        rows = node.rows
-        new_rule = self._sample_uniform_change_rule(rows, old_variable, old_value)
+
+        new_rule = self._sample_uniform_change_rule(node)
         if new_rule is None:
             return None, None, None
         new_variable, new_value = new_rule
@@ -382,46 +375,26 @@ class bart:
         mh_ratio = log_likelihood_ratio + log_tree_ratio
         return proposed_subtree, mh_ratio, path
 
-    def _sample_uniform_change_rule(self, rows, old_variable, old_value):
-        """Sample uniformly from all valid splitting rules on `rows`,
-        excluding the current rule `(old_variable, old_value)`.
-
-        Returns
-        -------
-        (new_variable, new_value) if an alternative rule exists,
-        otherwise None.
-        """
-
-        cut_values = []
-        valid_vars = []
-        counts = []
-
-        total_rules = 0
-
-        for var in range(self.p):
-            vals = np.unique(self.X[rows, var])
-            if vals.size <= 1:
-                continue
-
-            cuts = vals[:-1]
-            n_cuts = int(cuts.size)
-
-            valid_vars.append(var)
-            cut_values.append(cuts)
-            counts.append(n_cuts)
-            total_rules += n_cuts
-
+    def _sample_uniform_change_rule(self, node):
+        total_rules = int(node.eta_by_var[node.valid_vars].sum())
         if total_rules <= 1:
             return None
 
         u = int(self.rng.integers(total_rules - 1))
 
-        offset = 0
-        for k, var in enumerate(valid_vars):
-            n_cuts = counts[k]
-            if u < offset + n_cuts:
-                return int(var), cut_values[k][u - offset]
-            offset += n_cuts
+        skipped_current = False
+        for var in node.valid_vars:
+            splits = node.split_values_by_var[var]
+            for value in splits:
+                if (not skipped_current
+                    and var == node.variable
+                    and value == node.value):
+                    skipped_current = True
+                    continue
+
+                if u == 0:
+                    return int(var), value
+                u -= 1
         raise RuntimeError("Failed to decode sampled splitting rule.")
 
     def _log_likelihood(self,
@@ -449,13 +422,8 @@ class bart:
         return np.log(1 - self._p_split(depth))
 
     def _log_tree_prior_for_internal(self, node: Node):
-        variable = node.variable
-        rows = node.rows
-        value_counts = {}
-        for var in range(self.p):
-            value_counts[var] = len(np.unique(self.X[rows, var]))
-        p_ = len([k for k, v in value_counts.items() if v > 1])
-        eta_ = value_counts[variable] - 1
+        p_ = len(node.valid_vars)
+        eta_ = int(node.eta_by_var[node.variable])
         return -np.log(p_) - np.log(eta_)
 
     def _log_prior_ratio(self,
