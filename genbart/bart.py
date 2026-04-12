@@ -31,6 +31,7 @@ class bart:
 
     trees: list[Tree]
     training_predictions: np.ndarray
+    residuals: np.ndarray
     fitted_sums: np.ndarray
     tree_sample: list[dict]
 
@@ -99,6 +100,7 @@ class bart:
         # Initializing predictions.
         self.training_predictions = np.zeros((self.m, self.n))
         self.fitted_sums = np.zeros(self.n)
+        self.residuals = np.zeros(self.n)
         self.tree_sample = []
 
         for _ in range(self.n_burn):
@@ -180,11 +182,10 @@ class bart:
     def _one_mcmc_iteration(self):
         with self._section("iter.total"):
             for j in range(self.m):
+                self._partial_residuals(j)
                 self._draw_tree(j)
-                with self._section("draw_mu"):
-                    self._draw_mu(j)
-                with self._section("update_tps"):
-                    self._update_tps_and_fitted_sums_incremental(j)
+                self._draw_mu(j)
+                self._update_tps_and_fitted_sums_incremental(j)
             self.sigma2 = self._draw_sigma()
 
     def _draw_tree(self, j: int):
@@ -244,8 +245,7 @@ class bart:
             rows = node.rows
             rows_l = proposed_subtree.get_rows((0, ))
             rows_r = proposed_subtree.get_rows((1, ))
-            log_likelihood_ratio = self._log_likelihood(j,
-                                                        [rows_l, rows_r],
+            log_likelihood_ratio = self._log_likelihood([rows_l, rows_r],
                                                         [rows])
 
             d = len(path)
@@ -287,8 +287,7 @@ class bart:
                                 - np.log(p_)
                                 - np.log(eta_))
 
-        log_likelihood_ratio = self._log_likelihood(j,
-                                                    [rows_l, rows_r],
+        log_likelihood_ratio = self._log_likelihood([rows_l, rows_r],
                                                     [rows])
 
         d = len(path)
@@ -322,8 +321,7 @@ class bart:
         old_tree_terminals = [self.trees[j].get_rows(ter_path)
                               for ter_path
                               in self.trees[j].terminal_paths(path, False)]
-        log_likelihood_ratio = self._log_likelihood(j,
-                                                    subtree_terminal_paths,
+        log_likelihood_ratio = self._log_likelihood(subtree_terminal_paths,
                                                     old_tree_terminals)
 
         old_tree_internals = [self.trees[j].node_at(path)
@@ -362,8 +360,7 @@ class bart:
                               for ter_path
                               in self.trees[j].terminal_paths(path, False)]
 
-        log_likelihood_ratio = self._log_likelihood(j,
-                                                    prop_subtree_terminals,
+        log_likelihood_ratio = self._log_likelihood(prop_subtree_terminals,
                                                     old_tree_terminals)
 
 
@@ -398,19 +395,17 @@ class bart:
         raise RuntimeError("Failed to decode sampled splitting rule.")
 
     def _log_likelihood(self,
-                        j: int,
                         new_rows: list[np.ndarray],
                         old_rows: list[np.ndarray]):
-        residuals = self._partial_residuals(j)
         ratio = 0.0
         for row in new_rows:
             denom = self.sigma2 + len(row)*self.sigma_mu2 + 1e-12
-            sse = residuals[row].sum()**2
+            sse = self.residuals[row].sum()**2
             ratio += (0.5*np.log(self.sigma2/denom)
                       + (self.sigma_mu2*sse/(2.0*self.sigma2*denom)))
         for row in old_rows:
             denom = self.sigma2 + len(row)*self.sigma_mu2 + 1e-12
-            sse = residuals[row].sum()**2
+            sse = self.residuals[row].sum()**2
             ratio -= (0.5*np.log(self.sigma2/denom)
                       + (self.sigma_mu2*sse/(2.0*self.sigma2*denom)))
         return ratio
@@ -437,13 +432,12 @@ class bart:
         return prior_ratio
 
     def _draw_mu(self, j: int):
-        residuals = self._partial_residuals(j)
         nodes = self.trees[j].terminal_nodes()
         for node in nodes:
             rows = node.rows
             denom = len(rows)*self.sigma_mu2 + self.sigma2
             mu = self.rng.normal(loc=(self.sigma_mu2
-                                      * residuals[rows].sum())/denom,
+                                      * self.residuals[rows].sum())/denom,
                                  scale=np.sqrt(self.sigma2
                                                * self.sigma_mu2/denom))
             node.mu = mu
@@ -457,7 +451,7 @@ class bart:
         return (v * self.y_scale) + self.y_shift
 
     def _partial_residuals(self, j):
-        return self.y - self.fitted_sums + self.training_predictions[j, :]
+        self.residuals = self.y - self.fitted_sums + self.training_predictions[j, :]
 
     def _update_tps_and_fitted_sums_incremental(self, j: int):
         self.fitted_sums -= self.training_predictions[j, :]
