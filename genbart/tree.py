@@ -155,6 +155,8 @@ class Tree:
             self.root.valid_vars, self.root.split_values_by_var, self.root.eta_by_var = self._build_node_cache(rows_by_var)
         else:
             self.root = root
+        self._membership_stamp = np.zeros(self.data.shape[0], dtype=np.int32)
+        self._stamp_id = 0
 
     def node_at(self, path: tuple):
         """Return the node at the given path.
@@ -615,14 +617,15 @@ class Tree:
         left_mask_split = x_split <= value
         left_rows = ord_split[left_mask_split]
 
-        is_left = np.zeros(self.data.shape[0], dtype=bool)
-        is_left[left_rows] = True
+        self._stamp_id += 1
+        stamp = self._stamp_id
+        self._membership_stamp[left_rows] = stamp
 
         left_by_var = []
         right_by_var = []
 
         for ord_u in rows_by_var:
-            mask = is_left[ord_u]
+            mask = self._membership_stamp[ord_u] == stamp
             left_by_var.append(ord_u[mask])
             right_by_var.append(ord_u[~mask])
 
