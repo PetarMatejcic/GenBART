@@ -577,24 +577,40 @@ class Tree:
             raise ValueError("Current split value is not a valid split for this node.")
 
         return int(pos)
+
+    def finalize_subtree(self, path=()):
+        node = self.node_at(path)
+        self._finalize_node(node)
+
+    def _finalize_node(self, node):
+        if node.is_terminal():
+            self._set_node_cache(node)
+        else:
+            self._finalize_node(node.left)
+            self._finalize_node(node.right)
     
     def _update_subtree(self,
                           node: Node,
                           terminals: list[Node] = None,
                           internals: list[Node] = None):
-        node = self._set_node_cache(node)
+        node.rows = node.rows_by_var[0]
         if node.is_terminal():
             if terminals is not None:
                 terminals.append(node.rows)
             return node
+        
+        node.valid_vars, node.eta_by_var = self._build_node_cache(node.rows_by_var)
+
         if internals is not None:
             internals.append(node)
         
-        eta = int(node.eta_by_var[node.variable])
-        if eta <= 0:
-            return None
         ord_v = node.rows_by_var[node.variable]
         x = self.data[ord_v, node.variable]
+        if x.size <= 1:
+            return None
+        change_idx = np.flatnonzero(x[1:] != x[:-1])
+        if change_idx.size == 0:
+            return None
         last = np.searchsorted(x, node.value, side="right") - 1
         if last < 0 or x[last] != node.value:
             return None
@@ -693,7 +709,6 @@ class Tree:
         return left_by_var, right_by_var
     
     def _set_node_cache(self, node):
-        node.rows = node.rows_by_var[0]
         node.valid_vars, node.eta_by_var = self._build_node_cache(node.rows_by_var)
         return node
 

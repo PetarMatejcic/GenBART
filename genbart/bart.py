@@ -212,53 +212,52 @@ class bart:
         u = np.log(self.rng.uniform())
         if u < min(0.0, mh_ratio):
             self.trees[j].replace_subtree(old_path, proposed_subtree)
+            self.trees[j].finalize_subtree(old_path)
             return True
         return False
 
     def _propose_tree_grow(self, j: int):
-        with self._section("grow.propose"):
-            possible_paths = self.trees[j].terminal_paths()
-            if not possible_paths:
-                return None, None, None
-            p_ = len(possible_paths) 
-            path = possible_paths[self.rng.choice(p_)]
-            node = self.trees[j].node_at(path)
-            b_ = len(node.valid_vars)
-            if b_ == 0:
-                return None, None, None 
-            variable = node.valid_vars[self.rng.integers(b_)]
-            eta_ = int(node.eta_by_var[variable])
-            split_idx = int(self.rng.integers(eta_))
+        possible_paths = self.trees[j].terminal_paths()
+        if not possible_paths:
+            return None, None, None
+        p_ = len(possible_paths) 
+        path = possible_paths[self.rng.choice(p_)]
+        node = self.trees[j].node_at(path)
+        b_ = len(node.valid_vars)
+        if b_ == 0:
+            return None, None, None 
+        variable = node.valid_vars[self.rng.integers(b_)]
+        eta_ = int(node.eta_by_var[variable])
+        split_idx = int(self.rng.integers(eta_))
 
-        with self._section("grow.mh_ratio"):
-            proposed_subtree = self.trees[j].grow(path=path,
-                                            variable=variable,
-                                            split_idx=split_idx)
-            if proposed_subtree is None:
-                return None, None, None
-            log_transition_ratio = (np.log(self.move_distribution[1])
-                                    + np.log(p_)
-                                    + np.log(b_)
-                                    + np.log(eta_)
-                                    - np.log(self.move_distribution[0])
-                                    - np.log(max(1, len(self.trees[j].prunable_paths()))))
+        proposed_subtree = self.trees[j].grow(path=path,
+                                        variable=variable,
+                                        split_idx=split_idx)
+        if proposed_subtree is None:
+            return None, None, None
+        log_transition_ratio = (np.log(self.move_distribution[1])
+                                + np.log(p_)
+                                + np.log(b_)
+                                + np.log(eta_)
+                                - np.log(self.move_distribution[0])
+                                - np.log(max(1, len(self.trees[j].prunable_paths()))))
 
-            rows = node.rows
-            rows_l = proposed_subtree.get_rows((0, ))
-            rows_r = proposed_subtree.get_rows((1, ))
-            log_likelihood_ratio = self._log_likelihood([rows_l, rows_r],
-                                                        [rows])
+        rows = node.rows
+        rows_l = proposed_subtree.get_rows((0, ))
+        rows_r = proposed_subtree.get_rows((1, ))
+        log_likelihood_ratio = self._log_likelihood([rows_l, rows_r],
+                                                    [rows])
 
-            d = len(path)
-            log_tree_ratio = (np.log(self.alpha)
-                            + 2.0*np.log(1 - self._p_split(d+1))
-                            - np.log(((1+d)**self.beta) - self.alpha)
-                            - np.log(b_)
-                            - np.log(eta_))
+        d = len(path)
+        log_tree_ratio = (np.log(self.alpha)
+                        + 2.0*np.log(1 - self._p_split(d+1))
+                        - np.log(((1+d)**self.beta) - self.alpha)
+                        - np.log(b_)
+                        - np.log(eta_))
 
-            mh_ratio = (log_transition_ratio
-                        + log_likelihood_ratio
-                        + log_tree_ratio)
+        mh_ratio = (log_transition_ratio
+                    + log_likelihood_ratio
+                    + log_tree_ratio)
         return proposed_subtree, mh_ratio, path
 
     def _propose_tree_prune(self, j: int):
