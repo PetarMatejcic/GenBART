@@ -1,6 +1,6 @@
 import numpy as np
 
-from genbart.bart import bart
+from genbart.reg_bart import bart
 from genbart.tree import Tree
 
 
