@@ -106,19 +106,19 @@ class RegBart(BaseBART):
         else:
             if data.ndim == 1:
                 data = data.reshape((-1, 1))
-            predictions = np.zeros((X.shape[0], self.n_samples))
+            predictions = np.zeros((self.n_samples, X.shape[0]))
             for i in range(self.n_samples):
                 for j in range(self.m):
-                    predictions[:, i] += self._predict_serialized_tree_matrix(data,
+                    predictions[i, :] += self._predict_serialized_tree_matrix(data,
                                                                               self.tree_sample[i]["sample"][j])
             if central_measure == "mean":
-                out["prediction"] = self._inverse_transform_y(predictions.mean(axis=1))
+                out["prediction"] = self._inverse_transform_y(predictions.mean(axis=0))
             elif central_measure == "median":
-                out["prediction"] = self._inverse_transform_y(np.median(predictions, axis=1))
+                out["prediction"] = self._inverse_transform_y(np.median(predictions, axis=0))
             else:
                 raise ValueError
             if conf_int:
-                low_ints, high_ints = np.quantile(predictions, [a/2.0, 1 - a/2.0], axis=1)
+                low_ints, high_ints = np.quantile(predictions, [a/2.0, 1 - a/2.0], axis=0)
                 out["conf_int_low"] = self._inverse_transform_y(low_ints)
                 out["conf_int_high"] = self._inverse_transform_y(high_ints)
             return out
