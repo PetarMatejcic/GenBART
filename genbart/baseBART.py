@@ -28,6 +28,7 @@ class BaseBART:
     residuals: np.ndarray
     fitted_sums: np.ndarray
     tree_sample: list[dict]
+    extreme_values: list[tuple]
 
     def __init__(self,
                  m=200,
@@ -49,6 +50,7 @@ class BaseBART:
 
     def _init_trees(self):
         rows_by_var = [np.argsort(self.X[:, var], kind="mergesort") for var in range(self.p)]
+        self.extreme_values = [(self.X[x[0], var], self.X[x[-1], var]) for var, x in enumerate(rows_by_var)]
         self.trees = [Tree(data=self.X, rows_by_var=rows_by_var) for _ in range(self.m)]
 
     def _init_common_arrays(self):

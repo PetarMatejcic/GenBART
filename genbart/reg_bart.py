@@ -79,18 +79,30 @@ class RegBart(BaseBART):
                             "sigma2": self.sigma2})
         return self
 
-    def predict(self, X, level: float = 0.90):
+    def predict(self, X,
+                central_measure="mean",
+                conf_int=True,
+                level: float = 0.90):
         data = np.asarray(X)
         a = 1 - level
+        out = {}
         if data.ndim == 1 and self.p > 1:
             predictions = np.empty(self.n_samples)
             for i in range(self.n_samples):
                 for j in range(self.m):
                     predictions[i] += self._predict_serialized_tree_row(data,
                                                                         self.tree_sample[i]["sample"][j])
-            conf_int = np.quantile(predictions, [a/2.0, 1 - a/2.0])
-            return (self._inverse_transform_y(predictions.mean()),
-                    tuple(self._inverse_transform_y(conf_int)))
+            if central_measure == "mean":
+                out["prediction"] = self._inverse_transform_y(predictions.mean())
+            elif central_measure == "median":
+                out["prediction"] = self._inverse_transform_y(np.median(predictions))
+            else:
+                raise ValueError
+            if conf_int:
+                low_int, high_int = np.quantile(predictions, [a/2.0, 1 - a/2.0])
+                out["conf_int_low"] = self._inverse_transform_y(low_int)
+                out["conf_int_high"] = self._inverse_transform_y(high_int)
+            return out
         else:
             if data.ndim == 1:
                 data = data.reshape((-1, 1))
@@ -99,9 +111,48 @@ class RegBart(BaseBART):
                 for j in range(self.m):
                     predictions[:, i] += self._predict_serialized_tree_matrix(data,
                                                                               self.tree_sample[i]["sample"][j])
-            conf_ints = np.quantile(predictions, [a/2.0, 1 - a/2.0], axis=1)
-            return (self._inverse_transform_y(predictions.mean(axis=1)),
-                    self._inverse_transform_y(conf_ints))
+            if central_measure == "mean":
+                out["prediction"] = self._inverse_transform_y(predictions.mean(axis=1))
+            elif central_measure == "median":
+                out["prediction"] = self._inverse_transform_y(np.median(predictions, axis=1))
+            else:
+                raise ValueError
+            if conf_int:
+                low_ints, high_ints = np.quantile(predictions, [a/2.0, 1 - a/2.0], axis=1)
+                out["conf_int_low"] = self._inverse_transform_y(low_ints)
+                out["conf_int_high"] = self._inverse_transform_y(high_ints)
+            return out
+    
+    def marginalize(self,
+                    variable: int,
+                    grid,
+                    sampling_size: int = 100,
+                    level = 0.9):
+        lows = [ev[0] for ev in self.extreme_values]
+        highs = [ev[1] for ev in self.extreme_values]
+
+        sample = np.random.uniform(low=lows,
+                                   high=highs,
+                                   size=(sampling_size, self.p))
+
+        prediction = np.empty(grid.shape[0])
+        conf_int_low = np.empty(grid.shape[0])
+        conf_int_high = np.empty(grid.shape[0])
+        a = 1 - level
+
+        for i in range(grid.shape[0]):
+            sample[:, variable] = np.full(sampling_size, grid[i])
+
+            values = self.predict(sample, conf_int=False)
+            conf_int = np.quantile(values["prediction"], [a/2.0, 1 - a/2.0])
+            prediction[i] = values["prediction"].mean()
+            conf_int_low[i] = conf_int[0]
+            conf_int_high[i] = conf_int[1]
+        out = {}
+        out["prediction"] = prediction
+        out["conf_int_low"] = conf_int_low
+        out["conf_int_high"] = conf_int_high
+        return out
 
     def _one_mcmc_iteration(self):
         for j in range(self.m):
