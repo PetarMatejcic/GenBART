@@ -78,6 +78,10 @@ class ProbitBart(BaseBART):
             conf_ints = np.quantile(probs, [a/2.0, 1 - a/2.0], axis=1)
             return probs.mean(axis=1), conf_ints
     
+    def predict(self, X, threshold: float = 0.5):
+        probs = self.predict_probs(X)[0]
+        return probs >= threshold
+    
     def _one_mcmc_iteration(self):
         self._draw_latent_z()
         for j in range(self.m):
