@@ -58,7 +58,7 @@ class ProbitBart(BaseBART):
         data = np.asarray(X)
         a = 1 - level
         if data.ndim == 1 and self.p > 1:
-            g = np.empty(self.n_samples)
+            g = np.zeros(self.n_samples)
             for i in range(self.n_samples):
                 for j in range(self.m):
                     g[i] += self._predict_serialized_tree_row(data,

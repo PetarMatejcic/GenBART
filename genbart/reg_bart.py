@@ -87,7 +87,7 @@ class RegBart(BaseBART):
         a = 1 - level
         out = {}
         if data.ndim == 1 and self.p > 1:
-            predictions = np.empty(self.n_samples)
+            predictions = np.zeros(self.n_samples)
             for i in range(self.n_samples):
                 for j in range(self.m):
                     predictions[i] += self._predict_serialized_tree_row(data,
