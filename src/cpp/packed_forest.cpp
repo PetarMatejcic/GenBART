@@ -1,5 +1,7 @@
 #include<stdexcept>
 #include<cstdint>
+#include<sstream>
+#include<vector>
 
 #include<pybind11/pybind11.h>
 #include<pybind11/numpy.h>
@@ -75,7 +77,7 @@ PackedForest::PackedForest(
     if (m <= 0) throw std::runtime_error("m must be positive!");
     if (p <= 0) throw std::runtime_error("p must be positive!");
 
-    if(variable_.ndim() != 1 || value_.ndim() != 1
+    if(variable_.ndim() != 1 || value_.ndim() != 1 || tree_offset_.ndim() != 1
        || left_.ndim() != 1 || right_.ndim() != 1 || mu_.ndim() != 1){
         throw std::runtime_error("Input arrays must be 1D!");
     }
@@ -114,8 +116,8 @@ PackedForest::PackedForest(
                     static_cast<int64_t*>(off_buf.ptr) + n_trees_total + 1);
     
     if (tree_offset[0] != 0) throw std::runtime_error("tree_offset[0] must be 0!");
-    
-    for (int64_t t = 0; t <= n_trees_total; ++t){
+
+    for (int64_t t = 0; t < n_trees_total; ++t){
         if (tree_offset[t+1] <= tree_offset[t]){
             throw std::runtime_error("Every tree slice must contain a node!");
         }

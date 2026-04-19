@@ -1,9 +1,8 @@
+# pyright: reportMissingModuleSource=false
 import numpy as np
 from scipy.stats import chi2
-from genbart.tree import Node, Tree, SerializedTree
+from .tree import Node, Tree, SerializedTree
 from genbart._backend import PackedForest
-from .profilestats import ProfileStats
-from contextlib import nullcontext
 
 
 class BaseBART:
