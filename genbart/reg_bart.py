@@ -53,6 +53,8 @@ class RegBart(BaseBART):
         # Initializing trees.
         self._init_trees()
         self._init_common_arrays()
+        self._init_packed_builder()
+        self._vi_sum = np.zeros(self.p)
 
         # Initializing mu_ij|T_j prior ~ N(0, sigma_mu2)
         self.sigma_mu2 = (0.5 / (self.k * np.sqrt(self.m)))**2
@@ -72,11 +74,21 @@ class RegBart(BaseBART):
 
         for _ in range(self.n_samples):
             self._one_mcmc_iteration()
-            sample = []
+            
+            variable_counts = np.zeros(self.p, dtype=np.int64)
+            variable_total = 0
+
             for j in range(self.m):
-                sample.append(self.trees[j].serialize())
-            self.tree_sample.append({"sample": sample,
-                            "sigma2": self.sigma2})
+                st = self.trees[j].serialize()
+                self._append_serialized_tree(st)
+
+                mask = st.variable >= 0
+                if np.any(mask):
+                    variable_counts += np.bincount(st.variable[mask], minlength=self.p)
+                    variable_total += int(mask.sum())
+
+            self._vi_sum += variable_counts / variable_total
+        self._finalize_packed_forest()
         return self
 
     def predict(self, X,
@@ -86,12 +98,12 @@ class RegBart(BaseBART):
         data = np.asarray(X)
         a = 1 - level
         out = {}
+
+        if self.packed_forest is None:
+            raise RuntimeError("Model not fitted!")
+
         if data.ndim == 1 and self.p > 1:
-            predictions = np.zeros(self.n_samples)
-            for i in range(self.n_samples):
-                for j in range(self.m):
-                    predictions[i] += self._predict_serialized_tree_row(data,
-                                                                        self.tree_sample[i]["sample"][j])
+            predictions = self.packed_forest.draw_sums_row(data)
             if central_measure == "mean":
                 out["prediction"] = self._inverse_transform_y(predictions.mean())
             elif central_measure == "median":
@@ -106,11 +118,7 @@ class RegBart(BaseBART):
         else:
             if data.ndim == 1:
                 data = data.reshape((-1, 1))
-            predictions = np.zeros((self.n_samples, X.shape[0]))
-            for i in range(self.n_samples):
-                for j in range(self.m):
-                    predictions[i, :] += self._predict_serialized_tree_matrix(data,
-                                                                              self.tree_sample[i]["sample"][j])
+            predictions = self.packed_forest.draw_sums_matrix(data)
             if central_measure == "mean":
                 out["prediction"] = self._inverse_transform_y(predictions.mean(axis=0))
             elif central_measure == "median":

@@ -5,3 +5,5 @@ GenTest/__pycache__
 .pytest_cache
 timings/
 genbart/profilestats.py
+.vscode/*
+build/*

@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.stats import chi2
 from genbart.tree import Node, Tree, SerializedTree
+from genbart._backend import PackedForest
 from .profilestats import ProfileStats
 from contextlib import nullcontext
 
@@ -27,7 +28,7 @@ class BaseBART:
     training_predictions: np.ndarray
     residuals: np.ndarray
     fitted_sums: np.ndarray
-    tree_sample: list[dict]
+    packed_forest: PackedForest
     extreme_values: list[tuple]
 
     def __init__(self,
@@ -48,6 +49,9 @@ class BaseBART:
         self.move_distribution = move_distribution
         self.rng = np.random.default_rng(seed=random_state)
 
+        self.packed_forest = None
+        self._vi_sum = None
+
     def _init_trees(self):
         rows_by_var = [np.argsort(self.X[:, var], kind="mergesort") for var in range(self.p)]
         self.extreme_values = [(self.X[x[0], var], self.X[x[-1], var]) for var, x in enumerate(rows_by_var)]
@@ -57,27 +61,44 @@ class BaseBART:
         self.training_predictions = np.zeros((self.m, self.n))
         self.fitted_sums = np.zeros(self.n)
         self.residuals = np.zeros(self.n)
-        self.tree_sample = []
+
+    def _init_packed_builder(self):
+        self._packed_variable_chunks = []
+        self._packed_value_chunks = []
+        self._packed_left_chunks = []
+        self._packed_right_chunks = []
+        self._packed_mu_chunks = []
+        self._packed_tree_offset = [0]
+        self._packed_n_trees = 0
+        
+    def _finalize_packed_forest(self):
+        expected_trees = self.n_samples * self.m
+        if self._packed_n_trees != expected_trees:
+            raise RuntimeError(
+                f"Packed {self._packed_n_trees} trees, expected {expected_trees}."
+            )
+
+        variable = np.concatenate(self._packed_variable_chunks)
+        value = np.concatenate(self._packed_value_chunks)
+        left = np.concatenate(self._packed_left_chunks)
+        right = np.concatenate(self._packed_right_chunks)
+        mu = np.concatenate(self._packed_mu_chunks)
+        tree_offset = np.asarray(self._packed_tree_offset, dtype=np.int64)
+
+        self.packed_forest = PackedForest(
+            variable, value, left, right, mu, tree_offset,
+            self.n_samples, self.m, self.p
+        )
+        del self._packed_variable_chunks
+        del self._packed_value_chunks
+        del self._packed_left_chunks
+        del self._packed_right_chunks
+        del self._packed_mu_chunks
+        del self._packed_tree_offset
+        del self._packed_n_trees
 
     def variable_importance(self):
-        if not self.tree_sample:
-            raise RuntimeError("No posterior samples stored.")
-
-        importance = np.zeros(self.p, dtype=float)
-
-        for draw in self.tree_sample:
-            counts = np.zeros(self.p, dtype=np.int64)
-            total_splits = 0
-
-            for tree in draw["sample"]:
-                mask = tree.variable >= 0
-                if np.any(mask):
-                    counts += np.bincount(tree.variable[mask], minlength=self.p)
-                    total_splits += int(mask.sum())
-
-            if total_splits > 0:
-                importance += counts / total_splits
-        return importance / self.n_samples
+        return self._vi_sum / self.n_samples
     
     def _draw_tree(self, j: int):
         move = self.rng.choice(["grow", "prune", "change", "swap"],
@@ -327,6 +348,43 @@ class BaseBART:
         for node in old_tree_nodes:
             prior_ratio -= self._log_tree_prior_for_internal(node)
         return prior_ratio
+
+    def _append_serialized_tree(self, tree):
+        n = tree.variable.shape[0]
+
+        if (
+            tree.variable.ndim != 1
+            or tree.value.ndim != 1
+            or tree.left.ndim != 1
+            or tree.right.ndim != 1
+            or tree.mu.ndim != 1
+        ):
+            raise RuntimeError("Serialized tree arrays must all be 1D.")
+        if not (
+            tree.value.shape[0] == n
+            and tree.left.shape[0] == n
+            and tree.right.shape[0] == n
+            and tree.mu.shape[0] == n
+        ):
+            raise RuntimeError("Serialized tree arrays must have equal lengths.")
+        if n <= 0:
+            raise RuntimeError("Serialized tree must contain at least one node.")
+
+        base = self._packed_tree_offset[-1]
+
+        self._packed_variable_chunks.append(tree.variable.astype(np.int32, copy=False))
+        self._packed_value_chunks.append(tree.value.astype(np.float32, copy=False))
+        self._packed_mu_chunks.append(tree.mu.astype(np.float32, copy=False))
+
+        self._packed_left_chunks.append(
+            np.where(tree.left >= 0, tree.left + base, -1).astype(np.int32, copy=False)
+        )
+        self._packed_right_chunks.append(
+            np.where(tree.right >= 0, tree.right + base, -1).astype(np.int32, copy=False)
+        )
+
+        self._packed_tree_offset.append(base + n)
+        self._packed_n_trees += 1
 
     def _predict_serialized_tree_row(self,
                                      x: np.array,

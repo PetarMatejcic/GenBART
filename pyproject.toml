@@ -1,0 +1,12 @@
+[build-system]
+requires = ["scikit-build-core", "pybind11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "genbart"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[tool.scikit-build]
+wheel.packages = ["genbart"]
+build-dir = "build/{wheel_tag}"

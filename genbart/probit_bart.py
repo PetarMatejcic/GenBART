@@ -36,6 +36,7 @@ class ProbitBart(BaseBART):
 
         self._init_trees()
         self._init_common_arrays()
+        self._init_packed_builder()
 
         self.sigma2 = 1.0
         self.sigma_mu2 = (3.0 / (self.k * np.sqrt(self.m))) ** 2
@@ -48,11 +49,21 @@ class ProbitBart(BaseBART):
 
         for _ in range(self.n_samples):
             self._one_mcmc_iteration()
-            sample = []
+            
+            variable_counts = np.zeros(self.p, dtype=np.int64)
+            variable_total = 0
+
             for j in range(self.m):
-                sample.append(self.trees[j].serialize())
-            self.tree_sample.append({"sample": sample})
-        return self
+                st = self.trees[j].serialize()
+                self._append_serialized_tree(st)
+
+                mask = st.variable >= 0
+                if np.any(mask):
+                    variable_counts += np.bincount(st.variable[mask], minlength=self.p)
+                    variable_total += int(mask.sum())
+
+            self.vi_draws += variable_counts / variable_total
+        self._finalize_packed_forest()
     
     def predict_probs(self, X, level: float = 0.90):
         data = np.asarray(X)
