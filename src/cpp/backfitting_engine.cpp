@@ -538,8 +538,8 @@ bool BackfittingEngine::draw_tree(
         std::vector<std::vector<int32_t>> new_terminals{node.rows};
         std::vector<std::vector<int32_t>> old_terminals{left_child.rows, right_child.rows};
         const double log_lik_ratio = log_likelihood_ratio(residuals,
-                                                          new_terminals,
                                                           old_terminals,
+                                                          new_terminals,
                                                           sigma2,
                                                           sigma_mu2);
 
