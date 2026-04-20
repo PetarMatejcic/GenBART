@@ -71,7 +71,7 @@ public:
     std::optional<ProposalSubtree> propose_swap(int32_t node_idx,
                                                 int mode) const;   // 0=left, 1=right, 2=both
 
-    void replace_subtree(int32_t node_idx, const Tree& replacement);
+    int32_t replace_subtree(int32_t node_idx, const Tree& replacement);
 
     void serialize(std::vector<int32_t>& variable,
                    std::vector<double>& value,

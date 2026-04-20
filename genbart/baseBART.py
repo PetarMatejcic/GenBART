@@ -147,8 +147,8 @@ class BaseBART:
         base = self._packed_tree_offset[-1]
 
         self._packed_variable_chunks.append(tree.variable.astype(np.int32, copy=False))
-        self._packed_value_chunks.append(tree.value.astype(np.float32, copy=False))
-        self._packed_mu_chunks.append(tree.mu.astype(np.float32, copy=False))
+        self._packed_value_chunks.append(tree.value.astype(np.float64, copy=False))
+        self._packed_mu_chunks.append(tree.mu.astype(np.float64, copy=False))
 
         self._packed_left_chunks.append(
             np.where(tree.left >= 0, tree.left + base, -1).astype(np.int32, copy=False)
@@ -165,10 +165,10 @@ class BaseBART:
             raise RuntimeError("Backfitting engine not initialized.")
         variable, value, left, right, mu = self.engine.serialize_tree(j)
         return SerializedTree(variable=np.asarray(variable, dtype=np.int32),
-                              value=np.asarray(value, dtype=np.float32),
+                              value=np.asarray(value, dtype=np.float64),
                               left=np.asarray(left, dtype=np.int32),
                               right=np.asarray(right, dtype=np.int32),
-                              mu=np.asarray(mu, dtype=np.float32))
+                              mu=np.asarray(mu, dtype=np.float64))
     
     def _partial_residuals(self, j):
         self.residuals = self.y_work - self.fitted_sums + self.training_predictions[j, :]

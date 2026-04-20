@@ -455,14 +455,29 @@ bool BackfittingEngine::draw_tree(
         const ProposalSubtree& proposal = *proposal_opt;
 
         const int32_t p_old = static_cast<int32_t>(candidates.size());
-        const int32_t n_prunable_live = std::max<int32_t>(1, static_cast<int32_t>(tree.prunable_nodes().size()));
+        const int32_t n_prunable_live =
+        static_cast<int32_t>(tree.prunable_nodes().size());
 
-        const double log_transition_ratio = std::log(move_distribution[PRUNE])
-                                            + std::log(static_cast<double>(p_old))
-                                            + std::log(static_cast<double>(b_))
-                                            + std::log(static_cast<double>(eta_))
-                                            - std::log(move_distribution[GROW])
-                                            - std::log(static_cast<double>(n_prunable_live));
+        int32_t delta = 1;
+        const Node& live_node = tree.node(node_idx);
+        if (live_node.parent != -1) {
+            const Node& parent = tree.node(live_node.parent);
+            const int32_t sibling_idx = (parent.left == node_idx) ? parent.right : parent.left;
+            const bool sibling_terminal = tree.node(sibling_idx).is_terminal();
+            if (sibling_terminal) {
+                delta -= 1;
+            }
+        }
+
+        const int32_t n_prunable_new = std::max<int32_t>(1, n_prunable_live + delta);
+
+        const double log_transition_ratio =
+            std::log(move_distribution[PRUNE])
+            + std::log(static_cast<double>(p_old))
+            + std::log(static_cast<double>(b_))
+            + std::log(static_cast<double>(eta_))
+            - std::log(move_distribution[GROW])
+            - std::log(static_cast<double>(n_prunable_new));
 
         std::vector<std::vector<int32_t>> old_terminals{node.rows};
         const double log_lik_ratio = log_likelihood_ratio(
@@ -630,6 +645,7 @@ bool BackfittingEngine::draw_tree(
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
             tree.replace_subtree(node_idx, proposal.subtree);
+            tree.validate();
             return true;
         }
         return false;

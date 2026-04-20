@@ -124,7 +124,7 @@ void Tree::collect_terminal_nodes(int32_t idx,
                                   std::vector<int32_t>& out) const {
     const Node& cur = node(idx);
     if (cur.is_terminal()) {
-        if (!growable || cur.rows.size() > 1) out.push_back(idx);
+        if (!growable || !cur.valid_vars.empty()) out.push_back(idx);
         return;
     }
     collect_terminal_nodes(cur.left, growable, out);
@@ -519,7 +519,8 @@ Tree Tree::copy_subtree(int32_t node_idx) const {
     return out;
 }
 
-void Tree::replace_subtree(int32_t node_idx, const Tree& replacement) {
+// tree.cpp
+int32_t Tree::replace_subtree(int32_t node_idx, const Tree& replacement) {
     if (this == &replacement) {
         throw std::runtime_error("replace_subtree cannot use the same tree as replacement.");
     }
@@ -569,6 +570,13 @@ void Tree::replace_subtree(int32_t node_idx, const Tree& replacement) {
     } else {
         nodes_[static_cast<size_t>(parent_idx)].right = new_root;
     }
+
+    // Force a rebuild of rows/caches after grafting.
+    if (!update_subtree_from_root(new_root, nullptr, nullptr)) {
+        throw std::runtime_error("replace_subtree produced an invalid subtree.");
+    }
+
+    return new_root;
 }
 
 void Tree::retire_subtree(int32_t root_idx) {
