@@ -1,7 +1,7 @@
 # pyright: reportMissingModuleSource=false
 import numpy as np
 from scipy.stats import chi2
-from .tree import Node, Tree, SerializedTree
+from .tree import SerializedTree
 from genbart._backend import PackedForest, _BackfittingEngine
 
 
