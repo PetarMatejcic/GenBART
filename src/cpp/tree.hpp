@@ -14,8 +14,8 @@ namespace py = pybind11;
 
 struct Node {
     int32_t variable = -1;
-    float value = 0.0f;
-    float mu = 0.0f;
+    double value = 0.0f;
+    double mu = 0.0f;
 
     int32_t left = -1;
     int32_t right = -1;
@@ -52,19 +52,19 @@ public:
 
     int32_t count_nodes() const;
 
-    float split_value_at(const std::vector<int32_t>& ord_v,
+    double split_value_at(const std::vector<int32_t>& ord_v,
                          int32_t variable,
                          int32_t split_idx) const;
 
     int32_t split_pos_of_value(const std::vector<int32_t>& ord_v,
                                int32_t variable,
-                               float value) const;
+                               double value) const;
 
     std::optional<ProposalSubtree> propose_grow(int32_t node_idx,
                                                 int32_t variable,
                                                 int32_t split_idx) const;
     std::optional<ProposalSubtree> propose_prune(int32_t node_idx,
-                                                float mu = 0.0f) const;
+                                                double mu = 0.0f) const;
     std::optional<ProposalSubtree> propose_change(int32_t node_idx,
                                                 int32_t variable,
                                                 int32_t split_idx) const;
@@ -74,10 +74,10 @@ public:
     void replace_subtree(int32_t node_idx, const Tree& replacement);
 
     void serialize(std::vector<int32_t>& variable,
-                   std::vector<float>& value,
+                   std::vector<double>& value,
                    std::vector<int32_t>& left,
                    std::vector<int32_t>& right,
-                   std::vector<float>& mu) const;
+                   std::vector<double>& mu) const;
 
     void validate() const;
 
@@ -99,7 +99,7 @@ private:
 
     bool partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_by_var,
                                int32_t variable,
-                               float value,
+                               double value,
                                std::vector<std::vector<int32_t>>& left_by_var,
                                std::vector<std::vector<int32_t>>& right_by_var);
     

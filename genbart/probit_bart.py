@@ -37,6 +37,7 @@ class ProbitBart(BaseBART):
         self._init_trees()
         self._init_common_arrays()
         self._init_packed_builder()
+        self._vi_sum = np.zeros(self.p)
 
         self.sigma2 = 1.0
         self.sigma_mu2 = (3.0 / (self.k * np.sqrt(self.m))) ** 2
@@ -54,7 +55,7 @@ class ProbitBart(BaseBART):
             variable_total = 0
 
             for j in range(self.m):
-                st = self.trees[j].serialize()
+                st = self._serialize_tree(j)
                 self._append_serialized_tree(st)
 
                 mask = st.variable >= 0
@@ -62,32 +63,33 @@ class ProbitBart(BaseBART):
                     variable_counts += np.bincount(st.variable[mask], minlength=self.p)
                     variable_total += int(mask.sum())
 
-            self.vi_draws += variable_counts / variable_total
+            self._vi_sum += variable_counts / variable_total
         self._finalize_packed_forest()
+        return self
     
     def predict_probs(self, X, level: float = 0.90):
         data = np.asarray(X)
         a = 1 - level
+        out = {}
+
         if data.ndim == 1 and self.p > 1:
-            g = np.zeros(self.n_samples)
-            for i in range(self.n_samples):
-                for j in range(self.m):
-                    g[i] += self._predict_serialized_tree_row(data,
-                                                            self.tree_sample[i]["sample"][j])
+            g = self.packed_forest.draw_sums_row(data)
             probs = norm.cdf(g)
-            conf_int = np.quantile(probs, [a/2.0, 1 - a/2.0])
-            return probs.mean(), conf_int
+            out["probs"] = probs.mean()
+            conf_low, conf_high = np.quantile(probs, [a/2.0, 1 - a/2.0])
+            out["conf_int_low"] = conf_low
+            out["conf_int_high"] = conf_high
+            return out
         else:
             if data.ndim == 1:
                 data = data.reshape((-1, 1))
-            g = np.zeros((X.shape[0], self.n_samples))
-            for i in range(self.n_samples):
-                for j in range(self.m):
-                    g[:, i] += self._predict_serialized_tree_matrix(data,
-                                                                    self.tree_sample[i]["sample"][j])
+            g = self.packed_forest.draw_sums_matrix(data)
             probs = norm.cdf(g)
-            conf_ints = np.quantile(probs, [a/2.0, 1 - a/2.0], axis=1)
-            return probs.mean(axis=1), conf_ints
+            out["probs"] = probs.mean(axis=0)
+            conf_low, conf_high = np.quantile(probs, [a/2.0, 1 - a/2.0], axis=0)
+            out["conf_int_low"] = conf_low
+            out["conf_int_high"] = conf_high
+            return out
     
     def predict(self, X, threshold: float = 0.5):
         probs = self.predict_probs(X)[0]

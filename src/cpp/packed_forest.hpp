@@ -10,10 +10,10 @@ class PackedForest {
 public:
     PackedForest(
         py::array_t<int32_t> variable_,
-        py::array_t<float, py::array::c_style | py::array::forcecast> value_,
+        py::array_t<double, py::array::c_style | py::array::forcecast> value_,
         py::array_t<int32_t> left_,
         py::array_t<int32_t> right_,
-        py::array_t<float, py::array::c_style | py::array::forcecast> mu_,
+        py::array_t<double, py::array::c_style | py::array::forcecast> mu_,
         py::array_t<int64_t> tree_offset_,
         int64_t n_samples_,
         int64_t m_,
@@ -25,10 +25,10 @@ public:
 
 private:
     std::vector<int32_t> variable;
-    std::vector<float> value;
+    std::vector<double> value;
     std::vector<int32_t> left;
     std::vector<int32_t> right;
-    std::vector<float> mu;
+    std::vector<double> mu;
     std::vector<int64_t> tree_offset;
     int64_t n_samples;
     int64_t m;

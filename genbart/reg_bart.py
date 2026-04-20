@@ -79,7 +79,7 @@ class RegBart(BaseBART):
             variable_total = 0
 
             for j in range(self.m):
-                st = self.trees[j].serialize()
+                st = self._serialize_tree(j)
                 self._append_serialized_tree(st)
 
                 mask = st.variable >= 0

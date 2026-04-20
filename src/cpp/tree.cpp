@@ -31,9 +31,8 @@ Tree::Tree(const double* X,
     root.right = -1;
     root.parent = -1;
     root.split_idx = -1;
-    root.rows.resize(static_cast<size_t>(n_));
-    for (int32_t i = 0; i < n_; ++i) root.rows[i] = i;
     root.rows_by_var = root_rows_by_var;
+    root.rows = root.rows_by_var[0];
     root.eta_by_var.assign(static_cast<size_t>(p_), 0);
 
     build_node_cache(root);
@@ -208,7 +207,7 @@ int32_t Tree::count_nodes() const {
     return n;
 }
 
-float Tree::split_value_at(const std::vector<int32_t>& ord_v,
+double Tree::split_value_at(const std::vector<int32_t>& ord_v,
                            int32_t variable,
                            int32_t split_idx) const {
     if (ord_v.size() <= 1) {
@@ -223,7 +222,7 @@ float Tree::split_value_at(const std::vector<int32_t>& ord_v,
         if (cur != prev) {
             ++seen;
             if (seen == split_idx) {
-                return static_cast<float>(prev);   // not cur
+                return static_cast<double>(prev);   // not cur
             }
             prev = cur;
         }
@@ -234,7 +233,7 @@ float Tree::split_value_at(const std::vector<int32_t>& ord_v,
 
 int32_t Tree::split_pos_of_value(const std::vector<int32_t>& ord_v,
                                  int32_t variable,
-                                 float value) const {
+                                 double value) const {
     if (ord_v.empty()) {
         throw std::runtime_error("split_pos_of_value called on empty rows.");
     }
@@ -273,7 +272,7 @@ int32_t Tree::split_pos_of_value(const std::vector<int32_t>& ord_v,
 
 bool Tree::partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_by_var,
                                  int32_t variable,
-                                 float value,
+                                 double value,
                                  std::vector<std::vector<int32_t>>& left_by_var,
                                  std::vector<std::vector<int32_t>>& right_by_var) {
     const auto& ord_split = rows_by_var[static_cast<size_t>(variable)];
@@ -336,7 +335,7 @@ std::optional<ProposalSubtree> Tree::propose_grow(int32_t node_idx,
         throw std::runtime_error("Split is not valid for this node.");
     }
 
-    float split_value = split_value_at(old.rows_by_var[static_cast<size_t>(variable)],
+    double split_value = split_value_at(old.rows_by_var[static_cast<size_t>(variable)],
                                        variable,
                                        split_idx);
 
@@ -413,7 +412,7 @@ std::optional<ProposalSubtree> Tree::propose_grow(int32_t node_idx,
 }
 
 std::optional<ProposalSubtree> Tree::propose_prune(int32_t node_idx,
-                                                   float mu) const {
+                                                   double mu) const {
     const Node& old = node(node_idx);
 
     if (old.is_terminal()) {
@@ -606,6 +605,7 @@ bool Tree::update_subtree_from_root(int32_t node_idx,
     cur.rows = cur.rows_by_var[0];
 
     if (cur.is_terminal()) {
+        build_node_cache(cur);
         if (terminals != nullptr) terminals->push_back(cur.rows);
         return true;
     }
@@ -703,7 +703,7 @@ std::optional<ProposalSubtree> Tree::propose_swap(int32_t node_idx,
         if (left_child.is_terminal() || right_child.is_terminal()) return std::nullopt;
 
         const int32_t old_parent_var = parent.variable;
-        const float old_parent_val = parent.value;
+        const double old_parent_val = parent.value;
         const int32_t old_parent_split = parent.split_idx;
 
         parent.variable = left_child.variable;
@@ -732,10 +732,10 @@ std::optional<ProposalSubtree> Tree::propose_swap(int32_t node_idx,
 }
 
 void Tree::serialize(std::vector<int32_t>& variable,
-                     std::vector<float>& value,
+                     std::vector<double>& value,
                      std::vector<int32_t>& left,
                      std::vector<int32_t>& right,
-                     std::vector<float>& mu) const {
+                     std::vector<double>& mu) const {
     const int32_t n_nodes = count_nodes();
 
     variable.assign(static_cast<size_t>(n_nodes), -1);
@@ -904,25 +904,25 @@ void bind_tree(py::module_& m) {
         .def("serialize",
             [](const Tree& t) {
                 std::vector<int32_t> variable, left, right;
-                std::vector<float> value, mu;
+                std::vector<double> value, mu;
                 t.serialize(variable, value, left, right, mu);
 
                 py::array_t<int32_t> variable_arr(variable.size());
-                py::array_t<float> value_arr(value.size());
+                py::array_t<double> value_arr(value.size());
                 py::array_t<int32_t> left_arr(left.size());
                 py::array_t<int32_t> right_arr(right.size());
-                py::array_t<float> mu_arr(mu.size());
+                py::array_t<double> mu_arr(mu.size());
 
                 std::memcpy(variable_arr.mutable_data(), variable.data(),
                             variable.size() * sizeof(int32_t));
                 std::memcpy(value_arr.mutable_data(), value.data(),
-                            value.size() * sizeof(float));
+                            value.size() * sizeof(double));
                 std::memcpy(left_arr.mutable_data(), left.data(),
                             left.size() * sizeof(int32_t));
                 std::memcpy(right_arr.mutable_data(), right.data(),
                             right.size() * sizeof(int32_t));
                 std::memcpy(mu_arr.mutable_data(), mu.data(),
-                            mu.size() * sizeof(float));
+                            mu.size() * sizeof(double));
 
                 return py::make_tuple(
                     std::move(variable_arr),

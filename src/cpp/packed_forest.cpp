@@ -13,10 +13,10 @@ namespace py = pybind11;
 
 PackedForest::PackedForest(
         py::array_t<int32_t> variable_,
-        py::array_t<float, py::array::c_style | py::array::forcecast> value_,
+        py::array_t<double, py::array::c_style | py::array::forcecast> value_,
         py::array_t<int32_t> left_,
         py::array_t<int32_t> right_,
-        py::array_t<float, py::array::c_style | py::array::forcecast> mu_,
+        py::array_t<double, py::array::c_style | py::array::forcecast> mu_,
         py::array_t<int64_t> tree_offset_,
         int64_t n_samples_,
         int64_t m_,
@@ -55,14 +55,14 @@ PackedForest::PackedForest(
 
     variable.assign(static_cast<int32_t*>(var_buf.ptr),
                     static_cast<int32_t*>(var_buf.ptr) + n_nodes);
-    value.assign(static_cast<const float*>(val_buf.ptr),
-                    static_cast<const float*>(val_buf.ptr) + n_nodes);
+    value.assign(static_cast<const double*>(val_buf.ptr),
+                    static_cast<const double*>(val_buf.ptr) + n_nodes);
     left.assign(static_cast<int32_t*>(left_buf.ptr),
                     static_cast<int32_t*>(left_buf.ptr) + n_nodes);
     right.assign(static_cast<int32_t*>(right_buf.ptr),
                     static_cast<int32_t*>(right_buf.ptr) + n_nodes);
-    mu.assign(static_cast<const float*>(mu_buf.ptr),
-                    static_cast<const float*>(mu_buf.ptr) + n_nodes);
+    mu.assign(static_cast<const double*>(mu_buf.ptr),
+                    static_cast<const double*>(mu_buf.ptr) + n_nodes);
     tree_offset.assign(static_cast<int64_t*>(off_buf.ptr),
                     static_cast<int64_t*>(off_buf.ptr) + n_trees_total + 1);
     
@@ -236,10 +236,10 @@ void bind_packed_forest(py::module_& m) {
         .def(
             py::init<
                 py::array_t<int32_t, py::array::c_style | py::array::forcecast>,
-                py::array_t<float,   py::array::c_style | py::array::forcecast>,
+                py::array_t<double,   py::array::c_style | py::array::forcecast>,
                 py::array_t<int32_t, py::array::c_style | py::array::forcecast>,
                 py::array_t<int32_t, py::array::c_style | py::array::forcecast>,
-                py::array_t<float,   py::array::c_style | py::array::forcecast>,
+                py::array_t<double,   py::array::c_style | py::array::forcecast>,
                 py::array_t<int64_t, py::array::c_style | py::array::forcecast>,
                 int64_t,
                 int64_t,
