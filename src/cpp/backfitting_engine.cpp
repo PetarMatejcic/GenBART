@@ -114,7 +114,7 @@ void BackfittingEngine::apply_tree_to_residuals_impl(
     auto r = residuals.mutable_unchecked<1>();
 
     const Tree& tree = forest_[static_cast<size_t>(j)];
-    const auto terminals = tree.terminal_nodes(false);
+    const auto& terminals = tree.terminal_nodes(false);
 
     for (int32_t node_idx : terminals) {
         const Node& node = tree.node(node_idx);
@@ -338,7 +338,7 @@ void BackfittingEngine::draw_mu_impl(
 ) {
     auto r = residuals.unchecked<1>();
     Tree& tree = forest_[static_cast<size_t>(j)];
-    const auto terminals = tree.terminal_nodes(false);
+    const auto& terminals = tree.terminal_nodes(false);
 
     for (int32_t node_idx : terminals) {
         Node& node = tree.node(node_idx);
@@ -503,7 +503,7 @@ bool BackfittingEngine::draw_tree_impl(
     const int move = sample_move(move_distribution);
 
     if (move == GROW) {
-        const auto candidates = tree.terminal_nodes(true);
+        const auto& candidates = tree.terminal_nodes(true);
         if (candidates.empty()) return false;
 
         std::uniform_int_distribution<int32_t> node_dist(
@@ -599,7 +599,7 @@ bool BackfittingEngine::draw_tree_impl(
     }
 
     if (move == PRUNE) {
-        const auto candidates = tree.prunable_nodes();
+        const auto& candidates = tree.prunable_nodes();
         if (candidates.empty()) return false;
 
         std::uniform_int_distribution<int32_t> node_dist(
@@ -676,7 +676,7 @@ bool BackfittingEngine::draw_tree_impl(
     }
 
     if (move == CHANGE) {
-        const auto candidates = tree.internal_nodes();
+        const auto& candidates = tree.internal_nodes();
         if (candidates.empty()) return false;
 
         std::uniform_int_distribution<int32_t> node_dist(
@@ -725,7 +725,7 @@ bool BackfittingEngine::draw_tree_impl(
     }
 
     if (move == SWAP) {
-        const auto candidates = tree.swappable_nodes();
+        const auto& candidates = tree.swappable_nodes();
         if (candidates.empty()) return false;
 
         std::uniform_int_distribution<int32_t> node_dist(

@@ -59,10 +59,10 @@ public:
 
     int32_t root() const noexcept { return root_; }
 
-    std::vector<int32_t> terminal_nodes(bool growable = true) const;
-    std::vector<int32_t> internal_nodes() const;
-    std::vector<int32_t> prunable_nodes() const;
-    std::vector<int32_t> swappable_nodes() const;
+    const std::vector<int32_t>& terminal_nodes(bool growable) const;
+    const std::vector<int32_t>& internal_nodes() const;
+    const std::vector<int32_t>& prunable_nodes() const;
+    const std::vector<int32_t>& swappable_nodes() const;
 
     int32_t count_nodes() const;
 
@@ -109,9 +109,19 @@ private:
     mutable std::vector<int32_t> membership_stamp_;
     mutable int32_t stamp_id_ = 0;
 
+    mutable bool structure_cache_dirty_ = true;
+
+    mutable std::vector<int32_t> terminal_nodes_all_cache_;
+    mutable std::vector<int32_t> terminal_nodes_growable_cache_;
+    mutable std::vector<int32_t> internal_nodes_cache_;
+    mutable std::vector<int32_t> prunable_nodes_cache_;
+    mutable std::vector<int32_t> swappable_nodes_cache_;
+
     int32_t make_node(Node&& node);
 
     void build_node_cache(Node& node);
+    void rebuild_structure_cache() const;
+    void collect_structure_cache(int32_t idx) const;
 
     bool partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_by_var,
                                int32_t variable,
@@ -120,16 +130,6 @@ private:
                                std::vector<std::vector<int32_t>>& right_by_var) const;
     
     void collect_subtree_indices(int32_t root_idx, std::vector<int32_t>& out) const;
-
-    void collect_terminal_nodes(int32_t idx,
-                                bool growable,
-                                std::vector<int32_t>& out) const;
-    void collect_internal_nodes(int32_t idx,
-                                std::vector<int32_t>& out) const;
-    void collect_prunable_nodes(int32_t idx,
-                                std::vector<int32_t>& out) const;
-    void collect_swappable_nodes(int32_t idx,
-                                 std::vector<int32_t>& out) const;
 
     bool value_present_and_splittable(const Node& node) const;
 

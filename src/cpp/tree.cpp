@@ -38,6 +38,7 @@ Tree::Tree(const double* X,
     build_node_cache(root);
 
     root_ = make_node(std::move(root));
+    structure_cache_dirty_ = true;
 }
 
 int32_t Tree::make_node(Node&& nd) {
@@ -119,74 +120,74 @@ void Tree::collect_subtree_indices(int32_t root_idx,
     }
 }
 
-void Tree::collect_terminal_nodes(int32_t idx,
-                                  bool growable,
-                                  std::vector<int32_t>& out) const {
+void Tree::collect_structure_cache(int32_t idx) const {
     const Node& cur = node(idx);
+
     if (cur.is_terminal()) {
-        if (!growable || !cur.valid_vars.empty()) out.push_back(idx);
+        terminal_nodes_all_cache_.push_back(idx);
+
+        if (!cur.valid_vars.empty()) {
+            terminal_nodes_growable_cache_.push_back(idx);
+        }
         return;
     }
-    collect_terminal_nodes(cur.left, growable, out);
-    collect_terminal_nodes(cur.right, growable, out);
-}
 
-std::vector<int32_t> Tree::terminal_nodes(bool growable) const {
-    std::vector<int32_t> out;
-    collect_terminal_nodes(root_, growable, out);
-    return out;
-}
+    internal_nodes_cache_.push_back(idx);
 
-void Tree::collect_internal_nodes(int32_t idx,
-                                  std::vector<int32_t>& out) const {
-    const Node& cur = node(idx);
-    if (cur.is_terminal()) return;
-    out.push_back(idx);
-    collect_internal_nodes(cur.left, out);
-    collect_internal_nodes(cur.right, out);
-}
+    const Node& left_child = node(cur.left);
+    const Node& right_child = node(cur.right);
 
-std::vector<int32_t> Tree::internal_nodes() const {
-    std::vector<int32_t> out;
-    collect_internal_nodes(root_, out);
-    return out;
-}
-
-void Tree::collect_prunable_nodes(int32_t idx,
-                                  std::vector<int32_t>& out) const {
-    const Node& cur = node(idx);
-    if (cur.is_terminal()) return;
-
-    if (node(cur.left).is_terminal() && node(cur.right).is_terminal()) {
-        out.push_back(idx);
+    if (left_child.is_terminal() && right_child.is_terminal()) {
+        prunable_nodes_cache_.push_back(idx);
     }
 
-    collect_prunable_nodes(cur.left, out);
-    collect_prunable_nodes(cur.right, out);
-}
-
-std::vector<int32_t> Tree::prunable_nodes() const {
-    std::vector<int32_t> out;
-    collect_prunable_nodes(root_, out);
-    return out;
-}
-
-void Tree::collect_swappable_nodes(int32_t idx, std::vector<int32_t>& out) const {
-    const Node& cur = node(idx);
-    if (cur.is_terminal()) return;
-
-    if (node(cur.left).is_internal() || node(cur.right).is_internal()) {
-        out.push_back(idx);
+    if (left_child.is_internal() || right_child.is_internal()) {
+        swappable_nodes_cache_.push_back(idx);
     }
 
-    collect_swappable_nodes(cur.left, out);
-    collect_swappable_nodes(cur.right, out);
+    collect_structure_cache(cur.left);
+    collect_structure_cache(cur.right);
 }
 
-std::vector<int32_t> Tree::swappable_nodes() const {
-    std::vector<int32_t> out;
-    collect_swappable_nodes(root_, out);
-    return out;
+void Tree::rebuild_structure_cache() const {
+    terminal_nodes_all_cache_.clear();
+    terminal_nodes_growable_cache_.clear();
+    internal_nodes_cache_.clear();
+    prunable_nodes_cache_.clear();
+    swappable_nodes_cache_.clear();
+
+    collect_structure_cache(root_);
+
+    structure_cache_dirty_ = false;
+}
+
+const std::vector<int32_t>& Tree::terminal_nodes(bool growable) const {
+    if (structure_cache_dirty_) {
+        rebuild_structure_cache();
+    }
+    return growable ? terminal_nodes_growable_cache_
+                    : terminal_nodes_all_cache_;
+}
+
+const std::vector<int32_t>& Tree::internal_nodes() const {
+    if (structure_cache_dirty_) {
+        rebuild_structure_cache();
+    }
+    return internal_nodes_cache_;
+}
+
+const std::vector<int32_t>& Tree::prunable_nodes() const {
+    if (structure_cache_dirty_) {
+        rebuild_structure_cache();
+    }
+    return prunable_nodes_cache_;
+}
+
+const std::vector<int32_t>& Tree::swappable_nodes() const {
+    if (structure_cache_dirty_) {
+        rebuild_structure_cache();
+    }
+    return swappable_nodes_cache_;
 }
 
 int32_t Tree::count_nodes() const {
@@ -400,6 +401,8 @@ void Tree::apply_grow(const GrowProposalLite& proposal) {
     cur.left = left_idx;
     cur.right = right_idx;
     cur.split_idx = proposal.split_idx;
+
+    structure_cache_dirty_ = true;
 }
 
 std::optional<PruneProposalLite> Tree::propose_prune(
@@ -433,10 +436,13 @@ void Tree::apply_prune(const PruneProposalLite& proposal) {
     cur.split_idx = -1;
 
     build_node_cache(cur);
+
+    structure_cache_dirty_ = true;
 }
 
 void Tree::apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt) {
     overwrite_subtree_same_shape(node_idx, rebuilt, rebuilt.root());
+    structure_cache_dirty_ = true;
 }
 
 bool Tree::value_present_and_splittable(const Node& cur) const {
@@ -865,10 +871,27 @@ void bind_tree(py::module_& m) {
             py::arg("X")
         )
         .def("root", &Tree::root)
-        .def("terminal_nodes", &Tree::terminal_nodes, py::arg("growable") = true)
-        .def("internal_nodes", &Tree::internal_nodes)
-        .def("prunable_nodes", &Tree::prunable_nodes)
-        .def("swappable_nodes", &Tree::swappable_nodes)
+        .def("terminal_nodes",
+            [](const Tree& t, bool growable) {
+                const auto& v = t.terminal_nodes(growable);
+                return std::vector<int32_t>(v.begin(), v.end());
+            },
+            py::arg("growable") = true)
+        .def("internal_nodes",
+            [](const Tree& t) {
+                const auto& v = t.internal_nodes();
+                return std::vector<int32_t>(v.begin(), v.end());
+            })
+        .def("prunable_nodes",
+            [](const Tree& t) {
+                const auto& v = t.prunable_nodes();
+                return std::vector<int32_t>(v.begin(), v.end());
+            })
+        .def("swappable_nodes",
+            [](const Tree& t) {
+                const auto& v = t.swappable_nodes();
+                return std::vector<int32_t>(v.begin(), v.end());
+            })
         .def("serialize",
             [](const Tree& t) {
                 std::vector<int32_t> variable, left, right;
