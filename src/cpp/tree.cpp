@@ -272,9 +272,9 @@ int32_t Tree::split_pos_of_value(const std::vector<int32_t>& ord_v,
 
 bool Tree::partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_by_var,
                                  int32_t variable,
-                                 double value,
+                                 const double value,
                                  std::vector<std::vector<int32_t>>& left_by_var,
-                                 std::vector<std::vector<int32_t>>& right_by_var) {
+                                 std::vector<std::vector<int32_t>>& right_by_var) const{
     const auto& ord_split = rows_by_var[static_cast<size_t>(variable)];
 
     std::vector<int32_t> left_rows;
@@ -321,126 +321,118 @@ bool Tree::partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_b
     return !(left_by_var[0].empty() || right_by_var[0].empty());
 }
 
-std::optional<ProposalSubtree> Tree::propose_grow(int32_t node_idx,
-                                                  int32_t variable,
-                                                  int32_t split_idx) const {
+std::optional<GrowProposalLite> Tree::propose_grow(
+    int32_t node_idx,
+    int32_t variable,
+    int32_t split_idx
+) const {
     const Node& old = node(node_idx);
 
     if (old.is_internal()) {
         throw std::runtime_error("Cannot grow an internal node.");
     }
 
-    int32_t eta = old.eta_by_var.at(static_cast<size_t>(variable));
+    const int32_t eta = old.eta_by_var.at(static_cast<size_t>(variable));
     if (eta <= 0 || split_idx < 0 || split_idx >= eta) {
         throw std::runtime_error("Split is not valid for this node.");
     }
 
-    double split_value = split_value_at(old.rows_by_var[static_cast<size_t>(variable)],
-                                       variable,
-                                       split_idx);
-
-    Tree proposal(X_, n_, p_, old.rows_by_var);
-    proposal.nodes_.clear();
-    proposal.alive_.clear();
-    proposal.free_list_.clear();
-    proposal.root_ = 0;
-    proposal.membership_stamp_.assign(static_cast<size_t>(n_), 0);
-    proposal.stamp_id_ = 0;
+    const double split_value =
+        split_value_at(old.rows_by_var.at(static_cast<size_t>(variable)),
+                       variable,
+                       split_idx);
 
     std::vector<std::vector<int32_t>> left_by_var, right_by_var;
-    if (!proposal.partition_rows_by_var(old.rows_by_var,
-                                        variable,
-                                        split_value,
-                                        left_by_var,
-                                        right_by_var)) {
+    if (!partition_rows_by_var(old.rows_by_var,
+                               variable,
+                               split_value,
+                               left_by_var,
+                               right_by_var)){
         return std::nullopt;
     }
 
-    Node root;
-    root.variable = variable;
-    root.value = split_value;
-    root.mu = 0.0f;
-    root.left = 1;
-    root.right = 2;
-    root.parent = -1;
-    root.split_idx = split_idx;
-    root.rows = old.rows;
-    root.rows_by_var = old.rows_by_var;
-    root.valid_vars = old.valid_vars;
-    root.eta_by_var = old.eta_by_var;
+    return GrowProposalLite{
+        node_idx,
+        variable,
+        split_idx,
+        split_value,
+        std::move(left_by_var),
+        std::move(right_by_var)
+    };
+}
+
+void Tree::apply_grow(const GrowProposalLite& proposal) {
+    const int32_t cur_idx = proposal.node_idx;
 
     Node left_child;
     left_child.variable = -1;
-    left_child.value = 0.0f;
-    left_child.mu = 0.0f;
+    left_child.value = 0.0;
+    left_child.mu = 0.0;
     left_child.left = -1;
     left_child.right = -1;
-    left_child.parent = 0;
+    left_child.parent = cur_idx;
     left_child.split_idx = -1;
-    left_child.rows = left_by_var[0];
-    left_child.rows_by_var = std::move(left_by_var);
+    left_child.rows_by_var = proposal.left_by_var;
+    left_child.rows = left_child.rows_by_var[0];
     left_child.eta_by_var.assign(static_cast<size_t>(p_), 0);
-    proposal.build_node_cache(left_child);
+    build_node_cache(left_child);
 
     Node right_child;
     right_child.variable = -1;
-    right_child.value = 0.0f;
-    right_child.mu = 0.0f;
+    right_child.value = 0.0;
+    right_child.mu = 0.0;
     right_child.left = -1;
     right_child.right = -1;
-    right_child.parent = 0;
+    right_child.parent = cur_idx;
     right_child.split_idx = -1;
-    right_child.rows = right_by_var[0];
-    right_child.rows_by_var = std::move(right_by_var);
+    right_child.rows_by_var = proposal.right_by_var;
+    right_child.rows = right_child.rows_by_var[0];
     right_child.eta_by_var.assign(static_cast<size_t>(p_), 0);
-    proposal.build_node_cache(right_child);
+    build_node_cache(right_child);
 
-    const int32_t root_idx = proposal.make_node(std::move(root));
-    const int32_t left_idx = proposal.make_node(std::move(left_child));
-    const int32_t right_idx = proposal.make_node(std::move(right_child));
+    const int32_t left_idx = make_node(std::move(left_child));
+    const int32_t right_idx = make_node(std::move(right_child));
 
-    proposal.root_ = root_idx;
-    proposal.nodes_[static_cast<size_t>(root_idx)].left = left_idx;
-    proposal.nodes_[static_cast<size_t>(root_idx)].right = right_idx;
-
-    ProposalSubtree out{std::move(proposal)};
-    return out;
+    Node& cur = node(cur_idx);
+    cur.variable = proposal.variable;
+    cur.value = proposal.split_value;
+    cur.mu = 0.0;
+    cur.left = left_idx;
+    cur.right = right_idx;
+    cur.split_idx = proposal.split_idx;
 }
 
-std::optional<ProposalSubtree> Tree::propose_prune(int32_t node_idx,
-                                                   double mu) const {
+std::optional<PruneProposalLite> Tree::propose_prune(
+    int32_t node_idx,
+    double mu
+) const {
     const Node& old = node(node_idx);
 
     if (old.is_terminal()) {
         throw std::runtime_error("Cannot prune a terminal node.");
     }
 
-    Tree proposal(X_, n_, p_, old.rows_by_var);
-    proposal.nodes_.clear();
-    proposal.alive_.clear();
-    proposal.free_list_.clear();
-    proposal.root_ = 0;
-    proposal.membership_stamp_.assign(static_cast<size_t>(n_), 0);
-    proposal.stamp_id_ = 0;
+    return PruneProposalLite{node_idx, mu};
+}
 
-    Node root;
-    root.variable = -1;
-    root.value = 0.0f;
-    root.mu = mu;
-    root.left = -1;
-    root.right = -1;
-    root.parent = -1;
-    root.split_idx = -1;
-    root.rows = old.rows;
-    root.rows_by_var = old.rows_by_var;
-    root.valid_vars = old.valid_vars;
-    root.eta_by_var = old.eta_by_var;
+void Tree::apply_prune(const PruneProposalLite& proposal) {
+    Node& cur = node(proposal.node_idx);
 
-    const int32_t root_idx = proposal.make_node(std::move(root));
-    proposal.root_ = root_idx;
+    if (cur.is_terminal()) {
+        throw std::runtime_error("apply_prune called on terminal node.");
+    }
 
-    ProposalSubtree out{std::move(proposal)};
-    return out;
+    retire_subtree(cur.left);
+    retire_subtree(cur.right);
+
+    cur.variable = -1;
+    cur.value = 0.0;
+    cur.mu = proposal.mu;
+    cur.left = -1;
+    cur.right = -1;
+    cur.split_idx = -1;
+
+    build_node_cache(cur);
 }
 
 bool Tree::value_present_and_splittable(const Node& cur) const {

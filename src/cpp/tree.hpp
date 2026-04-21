@@ -33,6 +33,20 @@ struct Node {
 
 struct ProposalSubtree;
 
+struct GrowProposalLite {
+    int32_t node_idx;
+    int32_t variable;
+    int32_t split_idx;
+    double split_value;
+    std::vector<std::vector<int32_t>> left_by_var;
+    std::vector<std::vector<int32_t>> right_by_var;
+};
+
+struct PruneProposalLite {
+    int32_t node_idx;
+    double mu;
+};
+
 class Tree {
 public:
     Tree(const double* X,
@@ -60,10 +74,10 @@ public:
                                int32_t variable,
                                double value) const;
 
-    std::optional<ProposalSubtree> propose_grow(int32_t node_idx,
+    std::optional<GrowProposalLite> propose_grow(int32_t node_idx,
                                                 int32_t variable,
                                                 int32_t split_idx) const;
-    std::optional<ProposalSubtree> propose_prune(int32_t node_idx,
+    std::optional<PruneProposalLite> propose_prune(int32_t node_idx,
                                                 double mu = 0.0f) const;
     std::optional<ProposalSubtree> propose_change(int32_t node_idx,
                                                 int32_t variable,
@@ -72,6 +86,8 @@ public:
                                                 int mode) const;   // 0=left, 1=right, 2=both
 
     int32_t replace_subtree(int32_t node_idx, const Tree& replacement);
+    void apply_grow(const GrowProposalLite& proposal);
+    void apply_prune(const PruneProposalLite& proposal);
 
     void serialize(std::vector<int32_t>& variable,
                    std::vector<double>& value,
@@ -90,8 +106,8 @@ private:
     std::vector<Node> nodes_;
     std::vector<int32_t> free_list_;
     std::vector<uint8_t> alive_;
-    std::vector<int32_t> membership_stamp_;
-    int32_t stamp_id_ = 0;
+    mutable std::vector<int32_t> membership_stamp_;
+    mutable int32_t stamp_id_ = 0;
 
     int32_t make_node(Node&& node);
 
@@ -99,9 +115,9 @@ private:
 
     bool partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_by_var,
                                int32_t variable,
-                               double value,
+                               const double value,
                                std::vector<std::vector<int32_t>>& left_by_var,
-                               std::vector<std::vector<int32_t>>& right_by_var);
+                               std::vector<std::vector<int32_t>>& right_by_var) const;
     
     void collect_subtree_indices(int32_t root_idx, std::vector<int32_t>& out) const;
 

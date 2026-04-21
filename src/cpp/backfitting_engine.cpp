@@ -596,7 +596,7 @@ bool BackfittingEngine::draw_tree_impl(
 
         auto proposal_opt = tree.propose_grow(node_idx, variable, split_idx);
         if (!proposal_opt.has_value()) return false;
-        const ProposalSubtree& proposal = *proposal_opt;
+        const GrowProposalLite& proposal = *proposal_opt;
 
         const int32_t p_old = static_cast<int32_t>(candidates.size());
         const int32_t n_prunable_live =
@@ -623,20 +623,27 @@ bool BackfittingEngine::draw_tree_impl(
             - std::log(move_distribution[GROW])
             - std::log(static_cast<double>(n_prunable_new));
 
-        std::vector<TerminalStat> old_terminals{
-            TerminalStat{
-                static_cast<int32_t>(node.rows.size()),
-                [&]() {
-                    const auto r = residuals.unchecked<1>();
-                    double s = 0.0;
-                    for (int32_t row : node.rows) s += r(row);
-                    return s;
-                }()
+        const auto r = residuals.unchecked<1>();
+
+        auto terminal_stat_from_rows = [&](const std::vector<int32_t>& rows) -> TerminalStat {
+            double sum_r = 0.0;
+            for (int32_t row : rows) {
+                sum_r += r(row);
             }
+            return TerminalStat{
+                static_cast<int32_t>(rows.size()),
+                sum_r
+            };
         };
 
-        std::vector<TerminalStat> new_terminals;
-        collect_terminal_stats(proposal.subtree, proposal.subtree.root(), residuals, new_terminals);
+        std::vector<TerminalStat> old_terminals{
+            terminal_stat_from_rows(node.rows)
+        };
+
+        std::vector<TerminalStat> new_terminals{
+            terminal_stat_from_rows(proposal.left_by_var[0]),
+            terminal_stat_from_rows(proposal.right_by_var[0])
+        };
 
         const double log_lik_ratio = log_likelihood_ratio(
             new_terminals,
@@ -655,7 +662,7 @@ bool BackfittingEngine::draw_tree_impl(
         const double mh_ratio = log_transition_ratio + log_lik_ratio + log_tree_ratio;
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.replace_subtree(node_idx, proposal.subtree);
+            tree.apply_grow(proposal);
             return true;
         }
         return false;
@@ -675,7 +682,7 @@ bool BackfittingEngine::draw_tree_impl(
 
         auto proposal_opt = tree.propose_prune(node_idx, 0.0f);
         if (!proposal_opt.has_value()) return false;
-        const ProposalSubtree& proposal = *proposal_opt;
+        const PruneProposalLite& proposal = *proposal_opt;
 
         const int32_t b_ =
             static_cast<int32_t>(tree.terminal_nodes(true).size()) -
@@ -715,8 +722,8 @@ bool BackfittingEngine::draw_tree_impl(
         };
 
         const double log_lik_ratio = log_likelihood_ratio(
-            new_terminals,
             old_terminals,
+            new_terminals,
             sigma2,
             sigma_mu2
         );
@@ -732,7 +739,7 @@ bool BackfittingEngine::draw_tree_impl(
         const double mh_ratio = log_transition_ratio + log_lik_ratio + log_tree_ratio;
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.replace_subtree(node_idx, proposal.subtree);
+            tree.apply_prune(proposal);
             return true;
         }
         return false;
