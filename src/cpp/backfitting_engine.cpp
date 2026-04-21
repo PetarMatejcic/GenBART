@@ -69,7 +69,6 @@ void BackfittingEngine::initialize_root_forest() {
 }
 
 void BackfittingEngine::backfitting_sweep(
-    DoubleArray training_predictions,
     DoubleArray residuals,
     double sigma2,
     double sigma_mu2,
@@ -77,24 +76,18 @@ void BackfittingEngine::backfitting_sweep(
     double beta,
     const std::array<double, 4>& move_distribution
 ) {
-    validate_training_state_arrays(training_predictions);
     validate_residuals_array(residuals);
-
-    auto tp = training_predictions.mutable_unchecked<2>();
-    auto r = residuals.mutable_unchecked<1>();
 
     py::gil_scoped_release release;
 
     for (int32_t j = 0; j < m_; ++j) {
-        for (int32_t i = 0; i < n_; ++i) {
-            r(i) += tp(j, i);
-        }
+        apply_tree_to_residuals_impl(j, residuals, +1.0);
 
         draw_tree_impl(j, residuals, sigma2, sigma_mu2, alpha, beta, move_distribution);
 
         draw_mu_impl( j, residuals, sigma2, sigma_mu2);
 
-        refresh_tree_training_predictions_impl( j, training_predictions, residuals);
+        apply_tree_to_residuals_impl(j, residuals, -1.0);
     }
 }
 
@@ -113,15 +106,23 @@ void BackfittingEngine::validate_residuals_array(const DoubleArray& residuals) c
     }
 }
 
-void BackfittingEngine::validate_training_state_arrays(
-    const DoubleArray& training_predictions
-) const {
-    if (training_predictions.ndim() != 2) {
-        throw std::runtime_error("training_predictions must be a 2D array.");
-    }
-    if (static_cast<int32_t>(training_predictions.shape(0)) != m_ ||
-        static_cast<int32_t>(training_predictions.shape(1)) != n_) {
-        throw std::runtime_error("training_predictions has wrong shape.");
+void BackfittingEngine::apply_tree_to_residuals_impl(
+    int32_t j,
+    DoubleArray residuals,
+    double sign
+) {
+    auto r = residuals.mutable_unchecked<1>();
+
+    const Tree& tree = forest_[static_cast<size_t>(j)];
+    const auto terminals = tree.terminal_nodes(false);
+
+    for (int32_t node_idx : terminals) {
+        const Node& node = tree.node(node_idx);
+        const double delta = sign * static_cast<double>(node.mu);
+
+        for (int32_t row : node.rows) {
+            r(row) += delta;
+        }
     }
 }
 
@@ -353,37 +354,6 @@ void BackfittingEngine::draw_mu_impl(
 
         std::normal_distribution<double> dist(mean, std::sqrt(var));
         node.mu = static_cast<double>(dist(rng_));
-    }
-}
-
-void BackfittingEngine::refresh_tree_training_predictions(
-    int32_t j,
-    DoubleArray training_predictions,
-    DoubleArray residuals
-) {
-    check_tree_index(j);
-    validate_training_state_arrays(training_predictions);
-    refresh_tree_training_predictions_impl(j, training_predictions, residuals);
-}
-
-void BackfittingEngine::refresh_tree_training_predictions_impl(
-    int32_t j,
-    DoubleArray training_predictions,
-    DoubleArray residuals
-) {
-    auto tp = training_predictions.mutable_unchecked<2>();
-    auto r = residuals.mutable_unchecked<1>();
-
-    const Tree& tree = forest_[static_cast<size_t>(j)];
-    const auto terminals = tree.terminal_nodes(false);
-
-    for (int32_t node_idx : terminals) {
-        const Node& node = tree.node(node_idx);
-        const double mu = static_cast<double>(node.mu);
-        for (int32_t row : node.rows) {
-            tp(j, row) = mu;
-            r(row) -= mu;
-        }
     }
 }
 
@@ -820,7 +790,6 @@ void bind_backfitting_engine(py::module_& m) {
         .def(
             "backfitting_sweep",
             &BackfittingEngine::backfitting_sweep,
-            py::arg("training_predictions"),
             py::arg("residuals"),
             py::arg("sigma2"),
             py::arg("sigma_mu2"),
@@ -846,13 +815,6 @@ void bind_backfitting_engine(py::module_& m) {
             py::arg("residuals"),
             py::arg("sigma2"),
             py::arg("sigma_mu2")
-        )
-        .def(
-            "refresh_tree_training_predictions",
-            &BackfittingEngine::refresh_tree_training_predictions,
-            py::arg("j"),
-            py::arg("training_predictions"),
-            py::arg("fitted_sums")
         )
         .def("serialize_tree", &BackfittingEngine::serialize_tree, py::arg("j"))
         .def("serialize_forest", &BackfittingEngine::serialize_forest)

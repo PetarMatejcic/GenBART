@@ -22,7 +22,6 @@ class BaseBART:
     sigma_mu2: float
     y_work: np.ndarray
 
-    training_predictions: np.ndarray
     residuals: np.ndarray
     packed_forest: PackedForest
     extreme_values: list[tuple]
@@ -60,7 +59,6 @@ class BaseBART:
         self.engine.initialize_root_forest()
 
     def _init_common_arrays(self):
-        self.training_predictions = np.zeros((self.m, self.n))
         self.residuals = self.y_work.copy()
 
     def _init_packed_builder(self):
@@ -104,8 +102,7 @@ class BaseBART:
     def _backfitting_sweep(self):
         if self.engine is None:
             raise RuntimeError("Backfitting engin is not initialized!")
-        self.engine.backfitting_sweep(self.training_predictions,
-                                      self.residuals,
+        self.engine.backfitting_sweep(self.residuals,
                                       self.sigma2,
                                       self.sigma_mu2,
                                       self.alpha,
