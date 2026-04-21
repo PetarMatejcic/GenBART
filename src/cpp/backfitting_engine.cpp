@@ -256,26 +256,49 @@ std::optional<std::pair<int32_t, int32_t>> BackfittingEngine::sample_uniform_cha
     throw std::runtime_error("Failed to sample change rule.");
 }
 
-void BackfittingEngine::collect_terminal_rows(const Tree& tree, int32_t node_idx, std::vector<std::vector<int32_t>>& out) const {
+void BackfittingEngine::collect_terminal_stats(
+    const Tree& tree,
+    int32_t node_idx,
+    const DoubleArray& residuals,
+    std::vector<TerminalStat>& out
+) const {
+    const auto r = residuals.unchecked<1>();
     const Node& node = tree.node(node_idx);
 
     if (node.is_terminal()) {
-        out.push_back(node.rows);
+        double sum_r = 0.0;
+        for (int32_t row : node.rows) {
+            sum_r += r(row);
+        }
+        out.push_back(TerminalStat{
+            static_cast<int32_t>(node.rows.size()),
+            sum_r
+        });
         return;
     }
 
-    collect_terminal_rows(tree, node.left, out);
-    collect_terminal_rows(tree, node.right, out);
+    collect_terminal_stats(tree, node.left, residuals, out);
+    collect_terminal_stats(tree, node.right, residuals, out);
 }
 
-void BackfittingEngine::collect_internal_nodes(const Tree& tree, int32_t node_idx, std::vector<int32_t>& out) const {
+void BackfittingEngine::collect_internal_stats(
+    const Tree& tree,
+    int32_t node_idx,
+    std::vector<InternalStat>& out
+) const {
     const Node& node = tree.node(node_idx);
 
-    if (node.is_terminal()) return;
+    if (node.is_terminal()) {
+        return;
+    }
 
-    out.push_back(node_idx);
-    collect_internal_nodes(tree, node.left, out);
-    collect_internal_nodes(tree, node.right, out);
+    out.push_back(InternalStat{
+        static_cast<int32_t>(node.valid_vars.size()),
+        node.eta_by_var.at(static_cast<size_t>(node.variable))
+    });
+
+    collect_internal_stats(tree, node.left, out);
+    collect_internal_stats(tree, node.right, out);
 }
 
 double BackfittingEngine::p_split(int32_t depth, double alpha, double beta) const {
@@ -283,61 +306,44 @@ double BackfittingEngine::p_split(int32_t depth, double alpha, double beta) cons
 }
 
 double BackfittingEngine::log_likelihood_ratio(
-    const DoubleArray& residuals,
-    const std::vector<std::vector<int32_t>>& new_terminals,
-    const std::vector<std::vector<int32_t>>& old_terminals,
+    const std::vector<TerminalStat>& new_terminals,
+    const std::vector<TerminalStat>& old_terminals,
     double sigma2,
     double sigma_mu2
 ) const {
-    const auto r = residuals.unchecked<1>();
-
-    auto contribution = [&](const std::vector<int32_t>& rows) -> double {
-        double sum_r = 0.0;
-        for (int32_t row : rows) {
-            sum_r += r(row);
-        }
-
-        const double denom = sigma2 + static_cast<double>(rows.size()) * sigma_mu2;
-        const double sse = sum_r * sum_r;
+    auto contribution = [&](const TerminalStat& s) -> double {
+        const double denom = sigma2 + static_cast<double>(s.n) * sigma_mu2;
+        const double sse = s.sum_r * s.sum_r;
 
         return 0.5 * std::log(sigma2 / denom)
              + (sigma_mu2 * sse) / (2.0 * sigma2 * denom);
     };
 
     double ratio = 0.0;
-    for (const auto& rows : new_terminals) {
-        ratio += contribution(rows);
+    for (const auto& s : new_terminals) {
+        ratio += contribution(s);
     }
-    for (const auto& rows : old_terminals) {
-        ratio -= contribution(rows);
+    for (const auto& s : old_terminals) {
+        ratio -= contribution(s);
     }
-
     return ratio;
 }
 
-double BackfittingEngine::log_tree_prior_for_internal(const Tree& tree, int32_t node_idx) const {
-    const Node& node = tree.node(node_idx);
-
-    if (node.is_terminal()) throw std::runtime_error("log_tree_prior_for_internal called on a terminal node.");
-
-    const double b = static_cast<double>(node.valid_vars.size());
-    const double eta = static_cast<double>(node.eta_by_var.at(static_cast<size_t>(node.variable)));
-
-    return -std::log(b) - std::log(eta);
-}
-
 double BackfittingEngine::log_prior_ratio(
-    const Tree& proposed_tree,
-    const std::vector<int32_t>& proposed_internals,
-    const Tree& live_tree,
-    const std::vector<int32_t>& old_internals
+    const std::vector<InternalStat>& new_internals,
+    const std::vector<InternalStat>& old_internals
 ) const {
+    auto contribution = [](const InternalStat& s) -> double {
+        return -std::log(static_cast<double>(s.b))
+               -std::log(static_cast<double>(s.eta));
+    };
+
     double ratio = 0.0;
-    for (int32_t idx : proposed_internals) {
-        ratio += log_tree_prior_for_internal(proposed_tree, idx);
+    for (const auto& s : new_internals) {
+        ratio += contribution(s);
     }
-    for (int32_t idx : old_internals) {
-        ratio -= log_tree_prior_for_internal(live_tree, idx);
+    for (const auto& s : old_internals) {
+        ratio -= contribution(s);
     }
     return ratio;
 }
@@ -617,10 +623,23 @@ bool BackfittingEngine::draw_tree_impl(
             - std::log(move_distribution[GROW])
             - std::log(static_cast<double>(n_prunable_new));
 
-        std::vector<std::vector<int32_t>> old_terminals{node.rows};
+        std::vector<TerminalStat> old_terminals{
+            TerminalStat{
+                static_cast<int32_t>(node.rows.size()),
+                [&]() {
+                    const auto r = residuals.unchecked<1>();
+                    double s = 0.0;
+                    for (int32_t row : node.rows) s += r(row);
+                    return s;
+                }()
+            }
+        };
+
+        std::vector<TerminalStat> new_terminals;
+        collect_terminal_stats(proposal.subtree, proposal.subtree.root(), residuals, new_terminals);
+
         const double log_lik_ratio = log_likelihood_ratio(
-            residuals,
-            proposal.terminals,
+            new_terminals,
             old_terminals,
             sigma2,
             sigma_mu2
@@ -673,13 +692,34 @@ bool BackfittingEngine::draw_tree_impl(
                                             - std::log(static_cast<double>(p_))
                                             - std::log(static_cast<double>(eta_));
 
-        std::vector<std::vector<int32_t>> new_terminals{node.rows};
-        std::vector<std::vector<int32_t>> old_terminals{left_child.rows, right_child.rows};
-        const double log_lik_ratio = log_likelihood_ratio(residuals,
-                                                          old_terminals,
-                                                          new_terminals,
-                                                          sigma2,
-                                                          sigma_mu2);
+        const auto r = residuals.unchecked<1>();
+
+        auto terminal_stat_from_rows = [&](const std::vector<int32_t>& rows) -> TerminalStat {
+            double sum_r = 0.0;
+            for (int32_t row : rows) {
+                sum_r += r(row);
+            }
+            return TerminalStat{
+                static_cast<int32_t>(rows.size()),
+                sum_r
+            };
+        };
+
+        std::vector<TerminalStat> new_terminals{
+            terminal_stat_from_rows(node.rows)
+        };
+
+        std::vector<TerminalStat> old_terminals{
+            terminal_stat_from_rows(left_child.rows),
+            terminal_stat_from_rows(right_child.rows)
+        };
+
+        const double log_lik_ratio = log_likelihood_ratio(
+            new_terminals,
+            old_terminals,
+            sigma2,
+            sigma_mu2
+        );
 
         const int32_t d = depth_of_node(node_idx);
         const double log_tree_ratio =
@@ -714,24 +754,27 @@ bool BackfittingEngine::draw_tree_impl(
         if (!proposal_opt.has_value()) return false;
         const ProposalSubtree& proposal = *proposal_opt;
 
-        std::vector<std::vector<int32_t>> old_terminals;
-        collect_terminal_rows(tree, node_idx, old_terminals);
+        std::vector<TerminalStat> old_terminals;
+        collect_terminal_stats(tree, node_idx, residuals, old_terminals);
 
-        std::vector<int32_t> old_internals;
-        collect_internal_nodes(tree, node_idx, old_internals);
+        std::vector<InternalStat> old_internals;
+        collect_internal_stats(tree, node_idx, old_internals);
+
+        std::vector<TerminalStat> new_terminals;
+        collect_terminal_stats(proposal.subtree, proposal.subtree.root(), residuals, new_terminals);
+
+        std::vector<InternalStat> new_internals;
+        collect_internal_stats(proposal.subtree, proposal.subtree.root(), new_internals);
 
         const double log_lik_ratio = log_likelihood_ratio(
-            residuals,
-            proposal.terminals,
+            new_terminals,
             old_terminals,
             sigma2,
             sigma_mu2
         );
 
         const double log_prior = log_prior_ratio(
-            proposal.subtree,
-            proposal.internals,
-            tree,
+            new_internals,
             old_internals
         );
 
@@ -758,24 +801,27 @@ bool BackfittingEngine::draw_tree_impl(
         if (!proposal_opt.has_value()) return false;
         const ProposalSubtree& proposal = *proposal_opt;
 
-        std::vector<std::vector<int32_t>> old_terminals;
-        collect_terminal_rows(tree, node_idx, old_terminals);
+        std::vector<TerminalStat> old_terminals;
+        collect_terminal_stats(tree, node_idx, residuals, old_terminals);
 
-        std::vector<int32_t> old_internals;
-        collect_internal_nodes(tree, node_idx, old_internals);
+        std::vector<InternalStat> old_internals;
+        collect_internal_stats(tree, node_idx, old_internals);
+
+        std::vector<TerminalStat> new_terminals;
+        collect_terminal_stats(proposal.subtree, proposal.subtree.root(), residuals, new_terminals);
+
+        std::vector<InternalStat> new_internals;
+        collect_internal_stats(proposal.subtree, proposal.subtree.root(), new_internals);
 
         const double log_lik_ratio = log_likelihood_ratio(
-            residuals,
-            proposal.terminals,
+            new_terminals,
             old_terminals,
             sigma2,
             sigma_mu2
         );
 
         const double log_prior = log_prior_ratio(
-            proposal.subtree,
-            proposal.internals,
-            tree,
+            new_internals,
             old_internals
         );
 

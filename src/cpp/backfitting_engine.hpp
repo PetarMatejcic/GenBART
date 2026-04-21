@@ -15,6 +15,16 @@
 
 namespace py = pybind11;
 
+struct TerminalStat {
+    int32_t n;
+    double sum_r;
+};
+
+struct InternalStat {
+    int32_t b;
+    int32_t eta;
+};
+
 class BackfittingEngine {
 public:
     using DoubleArray = py::array_t<double, py::array::c_style | py::array::forcecast>;
@@ -132,31 +142,32 @@ private:
     std::optional<std::pair<int32_t, int32_t>>
     sample_uniform_change_rule(const Tree& tree, int32_t node_idx);
 
-    void collect_terminal_rows(const Tree& tree, int32_t node_idx, std::vector<std::vector<int32_t>>& out) const;
+    void collect_terminal_stats(
+        const Tree& tree,
+        int32_t node_idx,
+        const DoubleArray& residuals,
+        std::vector<TerminalStat>& out
+    ) const;
 
-    void collect_internal_nodes(const Tree& tree, int32_t node_idx, std::vector<int32_t>& out) const;
-
-    double p_split(int32_t depth, double alpha, double beta) const;
+    void collect_internal_stats(
+        const Tree& tree,
+        int32_t node_idx,
+        std::vector<InternalStat>& out
+    ) const;
 
     double log_likelihood_ratio(
-        const DoubleArray& residuals,
-        const std::vector<std::vector<int32_t>>& new_terminals,
-        const std::vector<std::vector<int32_t>>& old_terminals,
+        const std::vector<TerminalStat>& new_terminals,
+        const std::vector<TerminalStat>& old_terminals,
         double sigma2,
         double sigma_mu2
     ) const;
 
-    double log_tree_prior_for_internal(
-        const Tree& tree,
-        int32_t node_idx
+    double log_prior_ratio(
+        const std::vector<InternalStat>& new_internals,
+        const std::vector<InternalStat>& old_internals
     ) const;
 
-    double log_prior_ratio(
-        const Tree& proposed_tree,
-        const std::vector<int32_t>& proposed_internals,
-        const Tree& live_tree,
-        const std::vector<int32_t>& old_internals
-    ) const;
+    double p_split(int32_t depth, double alpha, double beta) const;
 };
 
 void bind_backfitting_engine(py::module_& m);

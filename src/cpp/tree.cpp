@@ -403,11 +403,7 @@ std::optional<ProposalSubtree> Tree::propose_grow(int32_t node_idx,
     proposal.nodes_[static_cast<size_t>(root_idx)].left = left_idx;
     proposal.nodes_[static_cast<size_t>(root_idx)].right = right_idx;
 
-    ProposalSubtree out{std::move(proposal), {}, {root_idx}};
-    out.terminals = {
-        out.subtree.node(left_idx).rows,
-        out.subtree.node(right_idx).rows
-    };
+    ProposalSubtree out{std::move(proposal)};
     return out;
 }
 
@@ -443,8 +439,7 @@ std::optional<ProposalSubtree> Tree::propose_prune(int32_t node_idx,
     const int32_t root_idx = proposal.make_node(std::move(root));
     proposal.root_ = root_idx;
 
-    ProposalSubtree out{std::move(proposal), {}, {}};
-    out.terminals = {out.subtree.node(root_idx).rows};
+    ProposalSubtree out{std::move(proposal)};
     return out;
 }
 
@@ -572,7 +567,7 @@ int32_t Tree::replace_subtree(int32_t node_idx, const Tree& replacement) {
     }
 
     // Force a rebuild of rows/caches after grafting.
-    if (!update_subtree_from_root(new_root, nullptr, nullptr)) {
+    if (!update_subtree_from_root(new_root)) {
         throw std::runtime_error("replace_subtree produced an invalid subtree.");
     }
 
@@ -606,20 +601,16 @@ void Tree::retire_subtree(int32_t root_idx) {
     }
 }
 
-bool Tree::update_subtree_from_root(int32_t node_idx,
-                                    std::vector<std::vector<int32_t>>* terminals,
-                                    std::vector<int32_t>* internals) {
+bool Tree::update_subtree_from_root(int32_t node_idx) {
     Node& cur = node(node_idx);
     cur.rows = cur.rows_by_var[0];
 
     if (cur.is_terminal()) {
         build_node_cache(cur);
-        if (terminals != nullptr) terminals->push_back(cur.rows);
         return true;
     }
 
     build_node_cache(cur);
-    if (internals != nullptr) internals->push_back(node_idx);
 
     if (!value_present_and_splittable(cur)) {
         return false;
@@ -641,8 +632,8 @@ bool Tree::update_subtree_from_root(int32_t node_idx,
         right_child.rows = right_child.rows_by_var[0];
     }
 
-    if (!update_subtree_from_root(cur.left, terminals, internals)) return false;
-    if (!update_subtree_from_root(cur.right, terminals, internals)) return false;
+    if (!update_subtree_from_root(cur.left)) return false;
+    if (!update_subtree_from_root(cur.right)) return false;
 
     return true;
 }
@@ -670,9 +661,9 @@ std::optional<ProposalSubtree> Tree::propose_change(int32_t node_idx,
                                          split_idx);
     root.split_idx = split_idx;
 
-    ProposalSubtree out{std::move(proposal), {}, {}};
+    ProposalSubtree out{std::move(proposal)};
 
-    if (!out.subtree.update_subtree_from_root(out.subtree.root_, &out.terminals, &out.internals)) {
+    if (!out.subtree.update_subtree_from_root(out.subtree.root_)) {
         return std::nullopt;
     }
 
@@ -730,9 +721,9 @@ std::optional<ProposalSubtree> Tree::propose_swap(int32_t node_idx,
         throw std::runtime_error("swap mode must be 0, 1, or 2.");
     }
 
-    ProposalSubtree out{std::move(proposal), {}, {}};
+    ProposalSubtree out{std::move(proposal)};
 
-    if (!out.subtree.update_subtree_from_root(out.subtree.root_, &out.terminals, &out.internals)) {
+    if (!out.subtree.update_subtree_from_root(out.subtree.root_)) {
         return std::nullopt;
     }
 
@@ -865,9 +856,7 @@ void Tree::validate() const {
 
 void bind_tree(py::module_& m) {
     py::class_<ProposalSubtree>(m, "_TreeProposal")
-        .def_readonly("subtree", &ProposalSubtree::subtree)
-        .def_readonly("terminals", &ProposalSubtree::terminals)
-        .def_readonly("internals", &ProposalSubtree::internals);
+        .def_readonly("subtree", &ProposalSubtree::subtree);
 
     py::class_<Tree>(m, "_Tree")
         .def(

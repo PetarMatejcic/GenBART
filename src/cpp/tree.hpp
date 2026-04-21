@@ -121,15 +121,11 @@ private:
 
     void retire_subtree(int32_t root_idx);
 
-    bool update_subtree_from_root(int32_t node_idx,
-                                std::vector<std::vector<int32_t>>* terminals,
-                                std::vector<int32_t>* internals);
+    bool update_subtree_from_root(int32_t node_idx);
 };
 
 struct ProposalSubtree {
     Tree subtree;
-    std::vector<std::vector<int32_t>> terminals;
-    std::vector<int32_t> internals;
 };
 
 void bind_tree(py::module_& m);
