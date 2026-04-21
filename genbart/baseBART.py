@@ -104,6 +104,20 @@ class BaseBART:
     def variable_importance(self):
         return self._vi_sum / self.n_samples
     
+    def _backfitting_sweep(self):
+        if self.engine is None:
+            raise RuntimeError("Backfitting engin is not initialized!")
+        self.engine.backfitting_sweep(self.y_work,
+                                      self.training_predictions,
+                                      self.fitted_sums,
+                                      self.residuals,
+                                      self.sigma2,
+                                      self.sigma_mu2,
+                                      self.alpha,
+                                      self.beta,
+                                      self.move_distribution,
+                                      )
+    
     def _draw_tree(self, j: int):
         if self.engine is None:
             raise RuntimeError("Backfitting engine not initialized.")

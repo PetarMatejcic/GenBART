@@ -68,6 +68,58 @@ void BackfittingEngine::initialize_root_forest() {
     }
 }
 
+void BackfittingEngine::backfitting_sweep(
+    const DoubleArray& y_work,
+    DoubleArray training_predictions,
+    DoubleArray fitted_sums,
+    DoubleArray residuals,
+    double sigma2,
+    double sigma_mu2,
+    double alpha,
+    double beta,
+    const std::array<double, 4>& move_distribution
+) {
+    validate_y_work_array(y_work);
+    validate_training_state_arrays(training_predictions, fitted_sums);
+    validate_residuals_array(residuals);
+
+    auto y = y_work.unchecked<1>();
+    auto tp = training_predictions.mutable_unchecked<2>();
+    auto fs = fitted_sums.mutable_unchecked<1>();
+    auto r = residuals.mutable_unchecked<1>();
+
+    py::gil_scoped_release release;
+
+    for (int32_t j = 0; j < m_; ++j) {
+        for (int32_t i = 0; i < n_; ++i) {
+            r(i) = y(i) - fs(i) + tp(j, i);
+        }
+
+        draw_tree_impl(
+            j,
+            residuals,
+            sigma2,
+            sigma_mu2,
+            alpha,
+            beta,
+            move_distribution
+        );
+
+        draw_mu_impl(
+            j,
+            residuals,
+            sigma2,
+            sigma_mu2
+        );
+
+        refresh_tree_training_predictions_impl(
+            j,
+            training_predictions,
+            fitted_sums
+        );
+    }
+}
+
 void BackfittingEngine::check_tree_index(int32_t j) const {
     if (j < 0 || j >= m_) {
         throw std::runtime_error("Tree index out of bounds.");
@@ -298,7 +350,15 @@ void BackfittingEngine::draw_mu(
 ) {
     check_tree_index(j);
     validate_residuals_array(residuals);
+    draw_mu_impl(j, residuals, sigma2, sigma_mu2);
+}
 
+void BackfittingEngine::draw_mu_impl(
+    int32_t j,
+    const DoubleArray& residuals,
+    double sigma2,
+    double sigma_mu2
+) {
     auto r = residuals.unchecked<1>();
     Tree& tree = forest_[static_cast<size_t>(j)];
     const auto terminals = tree.terminal_nodes(false);
@@ -327,7 +387,14 @@ void BackfittingEngine::refresh_tree_training_predictions(
 ) {
     check_tree_index(j);
     validate_training_state_arrays(training_predictions, fitted_sums);
+    refresh_tree_training_predictions_impl(j, training_predictions, fitted_sums);
+}
 
+void BackfittingEngine::refresh_tree_training_predictions_impl(
+    int32_t j,
+    DoubleArray training_predictions,
+    DoubleArray fitted_sums
+) {
     auto tp = training_predictions.mutable_unchecked<2>();
     auto fs = fitted_sums.mutable_unchecked<1>();
 
@@ -385,6 +452,15 @@ void BackfittingEngine::validate_forest() const {
     }
 }
 
+void BackfittingEngine::validate_y_work_array(const DoubleArray& y_work) const {
+    if (y_work.ndim() != 1) {
+        throw std::runtime_error("y_work must be a 1D array.");
+    }
+    if (static_cast<int32_t>(y_work.shape(0)) != n_) {
+        throw std::runtime_error("y_work has wrong length.");
+    }
+}
+
 bool BackfittingEngine::draw_tree(
     int32_t j,
     const DoubleArray& residuals,
@@ -396,7 +472,18 @@ bool BackfittingEngine::draw_tree(
 ) {
     check_tree_index(j);
     validate_residuals_array(residuals);
+    return draw_tree_impl(j, residuals, sigma2, sigma_mu2, alpha, beta, move_distribution);
+}
 
+bool BackfittingEngine::draw_tree_impl(
+    int32_t j,
+    const DoubleArray& residuals,
+    double sigma2,
+    double sigma_mu2,
+    double alpha,
+    double beta,
+    const std::array<double, 4>& move_distribution
+) {
     Tree& tree = forest_[static_cast<size_t>(j)];
 
     auto depth_of_node = [&](int32_t node_idx) -> int32_t {
@@ -655,6 +742,19 @@ void bind_backfitting_engine(py::module_& m) {
             py::arg("seed") = 0
         )
         .def("initialize_root_forest", &BackfittingEngine::initialize_root_forest)
+        .def(
+            "backfitting_sweep",
+            &BackfittingEngine::backfitting_sweep,
+            py::arg("y_work"),
+            py::arg("training_predictions"),
+            py::arg("fitted_sums"),
+            py::arg("residuals"),
+            py::arg("sigma2"),
+            py::arg("sigma_mu2"),
+            py::arg("alpha"),
+            py::arg("beta"),
+            py::arg("move_distribution")
+        )
         .def(
             "draw_tree",
             &BackfittingEngine::draw_tree,

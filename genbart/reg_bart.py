@@ -160,11 +160,7 @@ class RegBart(BaseBART):
         return out
 
     def _one_mcmc_iteration(self):
-        for j in range(self.m):
-            self._partial_residuals(j)
-            self._draw_tree(j)
-            self._draw_mu(j)
-            self._update_tps_and_fitted_sums_incremental(j)
+        self._backfitting_sweep()
         self.sigma2 = self._draw_sigma()
 
     def _draw_sigma(self):
