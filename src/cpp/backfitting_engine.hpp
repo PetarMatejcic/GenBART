@@ -65,6 +65,7 @@ public:
     );
 
     py::tuple serialize_tree(int32_t j) const;
+    py::tuple serialize_forest() const;
 
     void validate_tree(int32_t j) const;
     void validate_forest() const;

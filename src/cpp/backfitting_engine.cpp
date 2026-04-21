@@ -441,6 +441,68 @@ py::tuple BackfittingEngine::serialize_tree(int32_t j) const {
     );
 }
 
+py::tuple BackfittingEngine::serialize_forest() const {
+    std::vector<int32_t> variable_all, left_all, right_all;
+    std::vector<double> value_all, mu_all;
+    std::vector<int64_t> tree_offset;
+    tree_offset.reserve(static_cast<size_t>(m_) + 1);
+    tree_offset.push_back(0);
+
+    int64_t base = 0;
+
+    for (int32_t j = 0; j < m_; ++j) {
+        std::vector<int32_t> variable, left, right;
+        std::vector<double> value, mu;
+
+        forest_[static_cast<size_t>(j)].serialize(variable, value, left, right, mu);
+
+        const int64_t n_nodes = static_cast<int64_t>(variable.size());
+
+        variable_all.insert(variable_all.end(), variable.begin(), variable.end());
+        value_all.insert(value_all.end(), value.begin(), value.end());
+        mu_all.insert(mu_all.end(), mu.begin(), mu.end());
+
+        for (int32_t x : left) {
+            left_all.push_back(x >= 0 ? static_cast<int32_t>(x + base) : -1);
+        }
+        for (int32_t x : right) {
+            right_all.push_back(x >= 0 ? static_cast<int32_t>(x + base) : -1);
+        }
+
+        base += n_nodes;
+        tree_offset.push_back(base);
+    }
+
+    py::array_t<int32_t> variable_arr(variable_all.size());
+    py::array_t<double> value_arr(value_all.size());
+    py::array_t<int32_t> left_arr(left_all.size());
+    py::array_t<int32_t> right_arr(right_all.size());
+    py::array_t<double> mu_arr(mu_all.size());
+    py::array_t<int64_t> tree_offset_arr(tree_offset.size());
+
+    std::memcpy(variable_arr.mutable_data(), variable_all.data(),
+                variable_all.size() * sizeof(int32_t));
+    std::memcpy(value_arr.mutable_data(), value_all.data(),
+                value_all.size() * sizeof(double));
+    std::memcpy(left_arr.mutable_data(), left_all.data(),
+                left_all.size() * sizeof(int32_t));
+    std::memcpy(right_arr.mutable_data(), right_all.data(),
+                right_all.size() * sizeof(int32_t));
+    std::memcpy(mu_arr.mutable_data(), mu_all.data(),
+                mu_all.size() * sizeof(double));
+    std::memcpy(tree_offset_arr.mutable_data(), tree_offset.data(),
+                tree_offset.size() * sizeof(int64_t));
+
+    return py::make_tuple(
+        std::move(variable_arr),
+        std::move(value_arr),
+        std::move(left_arr),
+        std::move(right_arr),
+        std::move(mu_arr),
+        std::move(tree_offset_arr)
+    );
+}
+
 void BackfittingEngine::validate_tree(int32_t j) const {
     check_tree_index(j);
     forest_[static_cast<size_t>(j)].validate();
@@ -782,6 +844,7 @@ void bind_backfitting_engine(py::module_& m) {
             py::arg("fitted_sums")
         )
         .def("serialize_tree", &BackfittingEngine::serialize_tree, py::arg("j"))
+        .def("serialize_forest", &BackfittingEngine::serialize_forest)
         .def("validate_tree", &BackfittingEngine::validate_tree, py::arg("j"))
         .def("validate_forest", &BackfittingEngine::validate_forest)
         .def("n", &BackfittingEngine::n)

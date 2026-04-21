@@ -136,6 +136,21 @@ class BaseBART:
                             self.residuals,
                             self.sigma2,
                             self.sigma_mu2)
+
+    def _serialize_tree(self, j: int):
+        if self.engine is None:
+            raise RuntimeError("Backfitting engine not initialized.")
+        variable, value, left, right, mu = self.engine.serialize_tree(j)
+        return SerializedTree(variable=np.asarray(variable, dtype=np.int32),
+                              value=np.asarray(value, dtype=np.float64),
+                              left=np.asarray(left, dtype=np.int32),
+                              right=np.asarray(right, dtype=np.int32),
+                              mu=np.asarray(mu, dtype=np.float64))
+    
+    def _serialize_forest(self):
+        if self.engine is None:
+            raise RuntimeError("Backfitting engine not initialized.")
+        return self.engine.serialize_forest()
     
     def _append_serialized_tree(self, tree):
         n = tree.variable.shape[0]
@@ -173,16 +188,69 @@ class BaseBART:
 
         self._packed_tree_offset.append(base + n)
         self._packed_n_trees += 1
+    
+    def _append_serialized_forest_block(self,
+                                        variable: np.ndarray,
+                                        value: np.ndarray,
+                                        left: np.ndarray,
+                                        right: np.ndarray,
+                                        mu: np.ndarray,
+                                        tree_offset: np.ndarray,
+                                        ):
+        variable = np.asarray(variable, dtype=np.int32)
+        value = np.asarray(value, dtype=np.float64)
+        left = np.asarray(left, dtype=np.int32)
+        right = np.asarray(right, dtype=np.int32)
+        mu = np.asarray(mu, dtype=np.float64)
+        tree_offset = np.asarray(tree_offset, dtype=np.int64)
 
-    def _serialize_tree(self, j: int):
-        if self.engine is None:
-            raise RuntimeError("Backfitting engine not initialized.")
-        variable, value, left, right, mu = self.engine.serialize_tree(j)
-        return SerializedTree(variable=np.asarray(variable, dtype=np.int32),
-                              value=np.asarray(value, dtype=np.float64),
-                              left=np.asarray(left, dtype=np.int32),
-                              right=np.asarray(right, dtype=np.int32),
-                              mu=np.asarray(mu, dtype=np.float64))
+        n = variable.shape[0]
+
+        if (
+            variable.ndim != 1
+            or value.ndim != 1
+            or left.ndim != 1
+            or right.ndim != 1
+            or mu.ndim != 1
+            or tree_offset.ndim != 1
+        ):
+            raise RuntimeError("Serialized forest arrays must all be 1D.")
+
+        if not (
+            value.shape[0] == n
+            and left.shape[0] == n
+            and right.shape[0] == n
+            and mu.shape[0] == n
+        ):
+            raise RuntimeError("Serialized node arrays must have equal lengths.")
+
+        if tree_offset.shape[0] != self.m + 1:
+            raise RuntimeError("tree_offset must have length m + 1 for one live forest.")
+
+        if tree_offset[0] != 0:
+            raise RuntimeError("tree_offset[0] must be 0.")
+
+        if tree_offset[-1] != n:
+            raise RuntimeError("tree_offset[-1] must equal node-array length.")
+
+        if np.any(tree_offset[1:] <= tree_offset[:-1]):
+            raise RuntimeError("Each live tree must contain at least one node.")
+
+        base = self._packed_tree_offset[-1]
+
+        self._packed_variable_chunks.append(variable)
+        self._packed_value_chunks.append(value)
+        self._packed_mu_chunks.append(mu)
+
+        self._packed_left_chunks.append(
+            np.where(left >= 0, left + base, -1).astype(np.int32, copy=False)
+        )
+        self._packed_right_chunks.append(
+            np.where(right >= 0, right + base, -1).astype(np.int32, copy=False)
+        )
+
+        self._packed_tree_offset.extend((tree_offset[1:] + base).tolist())
+        self._packed_n_trees += self.m
     
     def _partial_residuals(self, j):
         self.residuals = self.y_work - self.fitted_sums + self.training_predictions[j, :]

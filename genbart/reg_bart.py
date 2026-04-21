@@ -72,19 +72,14 @@ class RegBart(BaseBART):
         for _ in range(self.n_samples):
             self._one_mcmc_iteration()
             
-            variable_counts = np.zeros(self.p, dtype=np.int64)
-            variable_total = 0
+            variable, value, left, right, mu, tree_offset = self._serialize_forest()
+            self._append_serialized_forest_block(variable, value, left, right, mu, tree_offset)
 
-            for j in range(self.m):
-                st = self._serialize_tree(j)
-                self._append_serialized_tree(st)
-
-                mask = st.variable >= 0
-                if np.any(mask):
-                    variable_counts += np.bincount(st.variable[mask], minlength=self.p)
-                    variable_total += int(mask.sum())
-
-            self._vi_sum += variable_counts / variable_total
+            mask = variable >= 0
+            if np.any(mask):
+                variable_counts = np.bincount(variable[mask], minlength=self.p)
+                variable_total = int(mask.sum())
+                self._vi_sum += variable_counts / variable_total
         self._finalize_packed_forest()
         return self
 
