@@ -510,65 +510,6 @@ Tree Tree::copy_subtree(int32_t node_idx) const {
     return out;
 }
 
-int32_t Tree::replace_subtree(int32_t node_idx, const Tree& replacement) {
-    if (this == &replacement) {
-        throw std::runtime_error("replace_subtree cannot use the same tree as replacement.");
-    }
-    const int32_t parent_idx = node(node_idx).parent;
-    const bool is_root = (parent_idx == -1);
-    const bool is_left_child = (!is_root && node(parent_idx).left == node_idx);
-
-    retire_subtree(node_idx);
-
-    std::vector<int32_t> rep_to_live(replacement.nodes_.size(), -1);
-
-    for (size_t i = 0; i < replacement.nodes_.size(); ++i) {
-        if (!replacement.alive_[i]) continue;
-
-        Node copied = replacement.nodes_[i];
-        copied.parent = -1;
-        copied.left = -1;
-        copied.right = -1;
-
-        rep_to_live[i] = make_node(std::move(copied));
-    }
-
-    for (size_t i = 0; i < replacement.nodes_.size(); ++i) {
-        if (!replacement.alive_[i]) continue;
-
-        const Node& rep_node = replacement.nodes_[i];
-        Node& live_node = nodes_[static_cast<size_t>(rep_to_live[i])];
-
-        if (rep_node.is_internal()) {
-            live_node.left = rep_to_live[static_cast<size_t>(rep_node.left)];
-            live_node.right = rep_to_live[static_cast<size_t>(rep_node.right)];
-        }
-
-        if (static_cast<int32_t>(i) == replacement.root_) {
-            live_node.parent = parent_idx;
-        } else {
-            live_node.parent = rep_to_live[static_cast<size_t>(rep_node.parent)];
-        }
-    }
-
-    const int32_t new_root = rep_to_live[static_cast<size_t>(replacement.root_)];
-
-    if (is_root) {
-        root_ = new_root;
-    } else if (is_left_child) {
-        nodes_[static_cast<size_t>(parent_idx)].left = new_root;
-    } else {
-        nodes_[static_cast<size_t>(parent_idx)].right = new_root;
-    }
-
-    // Force a rebuild of rows/caches after grafting.
-    if (!update_subtree_from_root(new_root)) {
-        throw std::runtime_error("replace_subtree produced an invalid subtree.");
-    }
-
-    return new_root;
-}
-
 void Tree::retire_subtree(int32_t root_idx) {
     std::vector<int32_t> doomed;
     collect_subtree_indices(root_idx, doomed);
@@ -968,7 +909,5 @@ void bind_tree(py::module_& m) {
         .def("propose_change", &Tree::propose_change,
              py::arg("node_idx"), py::arg("variable"), py::arg("split_idx"))
         .def("propose_swap", &Tree::propose_swap,
-             py::arg("node_idx"), py::arg("mode"))
-        .def("replace_subtree", &Tree::replace_subtree,
-             py::arg("node_idx"), py::arg("replacement"));
+             py::arg("node_idx"), py::arg("mode"));
 }

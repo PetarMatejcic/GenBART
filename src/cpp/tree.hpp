@@ -85,7 +85,6 @@ public:
     std::optional<ProposalSubtree> propose_swap(int32_t node_idx,
                                                 int mode) const;   // 0=left, 1=right, 2=both
 
-    int32_t replace_subtree(int32_t node_idx, const Tree& replacement);
     void apply_grow(const GrowProposalLite& proposal);
     void apply_prune(const PruneProposalLite& proposal);
     void apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt);
