@@ -331,28 +331,17 @@ void BackfittingEngine::refresh_tree_training_predictions(
     auto tp = training_predictions.mutable_unchecked<2>();
     auto fs = fitted_sums.mutable_unchecked<1>();
 
-    for (int32_t i = 0; i < n_; ++i) {
-        fs(i) -= tp(j, i);
-    }
-
-    for (int32_t i = 0; i < n_; ++i) {
-        tp(j, i) = 0.0;
-    }
-
     const Tree& tree = forest_[static_cast<size_t>(j)];
     const auto terminals = tree.terminal_nodes(false);
 
     for (int32_t node_idx : terminals) {
         const Node& node = tree.node(node_idx);
-        const double mu = static_cast<double>(node.mu);
-
+        const double new_mu = static_cast<double>(node.mu);
         for (int32_t row : node.rows) {
-            tp(j, row) = mu;
+            const double old_mu = tp(j, row);
+            tp(j, row) = new_mu;
+            fs(row) += new_mu - old_mu;
         }
-    }
-
-    for (int32_t i = 0; i < n_; ++i) {
-        fs(i) += tp(j, i);
     }
 }
 
@@ -645,7 +634,6 @@ bool BackfittingEngine::draw_tree(
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
             tree.replace_subtree(node_idx, proposal.subtree);
-            tree.validate();
             return true;
         }
         return false;
