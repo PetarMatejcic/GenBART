@@ -435,6 +435,10 @@ void Tree::apply_prune(const PruneProposalLite& proposal) {
     build_node_cache(cur);
 }
 
+void Tree::apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt) {
+    overwrite_subtree_same_shape(node_idx, rebuilt, rebuilt.root());
+}
+
 bool Tree::value_present_and_splittable(const Node& cur) const {
     const auto& ord_v = cur.rows_by_var[static_cast<size_t>(cur.variable)];
     if (ord_v.size() <= 1) return false;
@@ -506,7 +510,6 @@ Tree Tree::copy_subtree(int32_t node_idx) const {
     return out;
 }
 
-// tree.cpp
 int32_t Tree::replace_subtree(int32_t node_idx, const Tree& replacement) {
     if (this == &replacement) {
         throw std::runtime_error("replace_subtree cannot use the same tree as replacement.");
@@ -768,6 +771,41 @@ void Tree::serialize(std::vector<int32_t>& variable,
             stack.push_back({cur.left, ser_idx, false});
         }
     }
+}
+
+void Tree::overwrite_subtree_same_shape(
+    int32_t live_idx,
+    const Tree& rebuilt,
+    int32_t rebuilt_idx
+) {
+    Node& live = node(live_idx);
+    const Node& src = rebuilt.node(rebuilt_idx);
+
+    const bool live_terminal = live.is_terminal();
+    const bool src_terminal = src.is_terminal();
+
+    if (live_terminal != src_terminal) {
+        throw std::runtime_error("overwrite_subtree_same_shape: subtree shapes do not match.");
+    }
+
+    // Copy state fields only. Do NOT copy parent/left/right indices.
+    live.variable = src.variable;
+    live.value = src.value;
+    live.mu = src.mu;
+    live.split_idx = src.split_idx;
+    live.rows = src.rows;
+    live.rows_by_var = src.rows_by_var;
+    live.valid_vars = src.valid_vars;
+    live.eta_by_var = src.eta_by_var;
+
+    if (src_terminal) {
+        // Topology is already correct in the live tree.
+        // These should already be -1 for a terminal node if shapes match.
+        return;
+    }
+
+    overwrite_subtree_same_shape(live.left, rebuilt, src.left);
+    overwrite_subtree_same_shape(live.right, rebuilt, src.right);
 }
 
 void Tree::validate() const {

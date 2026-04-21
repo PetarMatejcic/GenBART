@@ -788,7 +788,7 @@ bool BackfittingEngine::draw_tree_impl(
         const double mh_ratio = log_lik_ratio + log_prior;
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.replace_subtree(node_idx, proposal.subtree);
+            tree.apply_rebuilt_subtree_same_shape(node_idx, proposal.subtree);
             return true;
         }
         return false;
@@ -835,7 +835,7 @@ bool BackfittingEngine::draw_tree_impl(
         const double mh_ratio = log_lik_ratio + log_prior;
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.replace_subtree(node_idx, proposal.subtree);
+            tree.apply_rebuilt_subtree_same_shape(node_idx, proposal.subtree);
             return true;
         }
         return false;

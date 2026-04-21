@@ -88,6 +88,7 @@ public:
     int32_t replace_subtree(int32_t node_idx, const Tree& replacement);
     void apply_grow(const GrowProposalLite& proposal);
     void apply_prune(const PruneProposalLite& proposal);
+    void apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt);
 
     void serialize(std::vector<int32_t>& variable,
                    std::vector<double>& value,
@@ -138,6 +139,12 @@ private:
     void retire_subtree(int32_t root_idx);
 
     bool update_subtree_from_root(int32_t node_idx);
+
+    void overwrite_subtree_same_shape(
+        int32_t live_idx,
+        const Tree& rebuilt,
+        int32_t rebuilt_idx
+    );
 };
 
 struct ProposalSubtree {
