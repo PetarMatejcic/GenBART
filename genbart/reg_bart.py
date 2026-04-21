@@ -159,7 +159,7 @@ class RegBart(BaseBART):
         self.sigma2 = self._draw_sigma()
 
     def _draw_sigma(self):
-        sse = np.sum((self.y_work - self.fitted_sums)**2)
+        sse = np.sum((self.residuals)**2)
         return 1.0 / self.rng.gamma(shape=0.5*(self.nu+self.n),
                                     scale=2.0/(self.nu*self.lambda_ + sse))
 

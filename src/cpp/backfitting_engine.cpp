@@ -69,9 +69,7 @@ void BackfittingEngine::initialize_root_forest() {
 }
 
 void BackfittingEngine::backfitting_sweep(
-    const DoubleArray& y_work,
     DoubleArray training_predictions,
-    DoubleArray fitted_sums,
     DoubleArray residuals,
     double sigma2,
     double sigma_mu2,
@@ -79,44 +77,24 @@ void BackfittingEngine::backfitting_sweep(
     double beta,
     const std::array<double, 4>& move_distribution
 ) {
-    validate_y_work_array(y_work);
-    validate_training_state_arrays(training_predictions, fitted_sums);
+    validate_training_state_arrays(training_predictions);
     validate_residuals_array(residuals);
 
-    auto y = y_work.unchecked<1>();
     auto tp = training_predictions.mutable_unchecked<2>();
-    auto fs = fitted_sums.mutable_unchecked<1>();
     auto r = residuals.mutable_unchecked<1>();
 
     py::gil_scoped_release release;
 
     for (int32_t j = 0; j < m_; ++j) {
         for (int32_t i = 0; i < n_; ++i) {
-            r(i) = y(i) - fs(i) + tp(j, i);
+            r(i) += tp(j, i);
         }
 
-        draw_tree_impl(
-            j,
-            residuals,
-            sigma2,
-            sigma_mu2,
-            alpha,
-            beta,
-            move_distribution
-        );
+        draw_tree_impl(j, residuals, sigma2, sigma_mu2, alpha, beta, move_distribution);
 
-        draw_mu_impl(
-            j,
-            residuals,
-            sigma2,
-            sigma_mu2
-        );
+        draw_mu_impl( j, residuals, sigma2, sigma_mu2);
 
-        refresh_tree_training_predictions_impl(
-            j,
-            training_predictions,
-            fitted_sums
-        );
+        refresh_tree_training_predictions_impl( j, training_predictions, residuals);
     }
 }
 
@@ -136,8 +114,7 @@ void BackfittingEngine::validate_residuals_array(const DoubleArray& residuals) c
 }
 
 void BackfittingEngine::validate_training_state_arrays(
-    const DoubleArray& training_predictions,
-    const DoubleArray& fitted_sums
+    const DoubleArray& training_predictions
 ) const {
     if (training_predictions.ndim() != 2) {
         throw std::runtime_error("training_predictions must be a 2D array.");
@@ -145,13 +122,6 @@ void BackfittingEngine::validate_training_state_arrays(
     if (static_cast<int32_t>(training_predictions.shape(0)) != m_ ||
         static_cast<int32_t>(training_predictions.shape(1)) != n_) {
         throw std::runtime_error("training_predictions has wrong shape.");
-    }
-
-    if (fitted_sums.ndim() != 1) {
-        throw std::runtime_error("fitted_sums must be a 1D array.");
-    }
-    if (static_cast<int32_t>(fitted_sums.shape(0)) != n_) {
-        throw std::runtime_error("fitted_sums has wrong length.");
     }
 }
 
@@ -389,31 +359,30 @@ void BackfittingEngine::draw_mu_impl(
 void BackfittingEngine::refresh_tree_training_predictions(
     int32_t j,
     DoubleArray training_predictions,
-    DoubleArray fitted_sums
+    DoubleArray residuals
 ) {
     check_tree_index(j);
-    validate_training_state_arrays(training_predictions, fitted_sums);
-    refresh_tree_training_predictions_impl(j, training_predictions, fitted_sums);
+    validate_training_state_arrays(training_predictions);
+    refresh_tree_training_predictions_impl(j, training_predictions, residuals);
 }
 
 void BackfittingEngine::refresh_tree_training_predictions_impl(
     int32_t j,
     DoubleArray training_predictions,
-    DoubleArray fitted_sums
+    DoubleArray residuals
 ) {
     auto tp = training_predictions.mutable_unchecked<2>();
-    auto fs = fitted_sums.mutable_unchecked<1>();
+    auto r = residuals.mutable_unchecked<1>();
 
     const Tree& tree = forest_[static_cast<size_t>(j)];
     const auto terminals = tree.terminal_nodes(false);
 
     for (int32_t node_idx : terminals) {
         const Node& node = tree.node(node_idx);
-        const double new_mu = static_cast<double>(node.mu);
+        const double mu = static_cast<double>(node.mu);
         for (int32_t row : node.rows) {
-            const double old_mu = tp(j, row);
-            tp(j, row) = new_mu;
-            fs(row) += new_mu - old_mu;
+            tp(j, row) = mu;
+            r(row) -= mu;
         }
     }
 }
@@ -517,15 +486,6 @@ void BackfittingEngine::validate_tree(int32_t j) const {
 void BackfittingEngine::validate_forest() const {
     for (int32_t j = 0; j < m_; ++j) {
         forest_[static_cast<size_t>(j)].validate();
-    }
-}
-
-void BackfittingEngine::validate_y_work_array(const DoubleArray& y_work) const {
-    if (y_work.ndim() != 1) {
-        throw std::runtime_error("y_work must be a 1D array.");
-    }
-    if (static_cast<int32_t>(y_work.shape(0)) != n_) {
-        throw std::runtime_error("y_work has wrong length.");
     }
 }
 
@@ -860,9 +820,7 @@ void bind_backfitting_engine(py::module_& m) {
         .def(
             "backfitting_sweep",
             &BackfittingEngine::backfitting_sweep,
-            py::arg("y_work"),
             py::arg("training_predictions"),
-            py::arg("fitted_sums"),
             py::arg("residuals"),
             py::arg("sigma2"),
             py::arg("sigma_mu2"),

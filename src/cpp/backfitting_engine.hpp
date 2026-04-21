@@ -38,9 +38,7 @@ public:
     void initialize_root_forest();
 
     void backfitting_sweep(
-        const DoubleArray& y_work,
         DoubleArray training_predictions,
-        DoubleArray fitted_sums,
         DoubleArray residuals,
         double sigma2,
         double sigma_mu2,
@@ -71,7 +69,7 @@ public:
     void refresh_tree_training_predictions(
         int32_t j,
         DoubleArray training_predictions,
-        DoubleArray fitted_sums
+        DoubleArray residuals
     );
 
     py::tuple serialize_tree(int32_t j) const;
@@ -112,8 +110,7 @@ private:
 
     void check_tree_index(int32_t j) const;
     void validate_residuals_array(const DoubleArray& residuals) const;
-    void validate_training_state_arrays(const DoubleArray& training_predictions, const DoubleArray& fitted_sums) const;
-    void validate_y_work_array(const DoubleArray& y_work) const;
+    void validate_training_state_arrays(const DoubleArray& training_predictions) const;
 
     bool draw_tree_impl(
         int32_t j,
@@ -133,7 +130,7 @@ private:
     void refresh_tree_training_predictions_impl(
         int32_t j,
         DoubleArray training_predictions,
-        DoubleArray fitted_sums
+        DoubleArray residuals
     );
 
     int sample_move(const std::array<double, 4>& move_distribution);
