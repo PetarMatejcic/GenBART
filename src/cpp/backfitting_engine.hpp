@@ -152,6 +152,17 @@ private:
         std::vector<InternalStat>& out
     ) const;
 
+    void collect_terminal_stats_workspace(
+        const SameShapeWorkspace& ws,
+        const DoubleArray& residuals,
+        std::vector<TerminalStat>& out
+    ) const;
+
+    void collect_internal_stats_workspace(
+        const SameShapeWorkspace& ws,
+        std::vector<InternalStat>& out
+    ) const;
+
     double log_likelihood_ratio(
         const std::vector<TerminalStat>& new_terminals,
         const std::vector<TerminalStat>& old_terminals,

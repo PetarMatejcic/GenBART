@@ -270,6 +270,42 @@ void BackfittingEngine::collect_internal_stats(
     collect_internal_stats(tree, node.right, out);
 }
 
+void BackfittingEngine::collect_terminal_stats_workspace(
+    const SameShapeWorkspace& ws,
+    const DoubleArray& residuals,
+    std::vector<TerminalStat>& out
+) const {
+    const auto r = residuals.unchecked<1>();
+
+    for (const auto& nd : ws.states) {
+        if (nd.variable != -1) continue;   // internal
+
+        double sum_r = 0.0;
+        for (int32_t row : nd.rows) {
+            sum_r += r(row);
+        }
+
+        out.push_back(TerminalStat{
+            static_cast<int32_t>(nd.rows.size()),
+            sum_r
+        });
+    }
+}
+
+void BackfittingEngine::collect_internal_stats_workspace(
+    const SameShapeWorkspace& ws,
+    std::vector<InternalStat>& out
+) const {
+    for (const auto& nd : ws.states) {
+        if (nd.variable == -1) continue;   // terminal
+
+        out.push_back(InternalStat{
+            static_cast<int32_t>(nd.valid_vars.size()),
+            nd.eta_by_var.at(static_cast<size_t>(nd.variable))
+        });
+    }
+}
+
 double BackfittingEngine::p_split(int32_t depth, double alpha, double beta) const {
     return alpha / std::pow(1.0 + static_cast<double>(depth), beta);
 }
@@ -719,12 +755,15 @@ bool BackfittingEngine::draw_tree_impl(
 
         auto rule_opt = sample_uniform_change_rule(tree, node_idx);
         if (!rule_opt.has_value()) return false;
-        
-        const SubtreeSnapshot snapshot = tree.snapshot_subtree(node_idx);
-        if (!tree.propose_change(node_idx, rule_opt->first, rule_opt->second)) {
-            tree.restore_subtree(snapshot);
-            return false;
-        }
+
+        const int32_t new_var = rule_opt->first;
+        const int32_t new_split_idx = rule_opt->second;
+        const double new_split_value =
+            tree.split_value_at(
+                tree.node(node_idx).rows_by_var.at(static_cast<size_t>(new_var)),
+                new_var,
+                new_split_idx
+            );
 
         std::vector<TerminalStat> old_terminals;
         collect_terminal_stats(tree, node_idx, residuals, old_terminals);
@@ -732,30 +771,35 @@ bool BackfittingEngine::draw_tree_impl(
         std::vector<InternalStat> old_internals;
         collect_internal_stats(tree, node_idx, old_internals);
 
+        std::vector<RuleOverride> overrides{
+            RuleOverride{node_idx, new_var, new_split_idx, new_split_value}
+        };
+
+        auto ws_opt = tree.evaluate_same_shape_workspace(node_idx, overrides);
+        if (!ws_opt.has_value()) return false;
+
+        const SameShapeWorkspace& ws = *ws_opt;
+
         std::vector<TerminalStat> new_terminals;
-        collect_terminal_stats(tree, node_idx, residuals, new_terminals);
+        collect_terminal_stats_workspace(ws, residuals, new_terminals);
 
         std::vector<InternalStat> new_internals;
-        collect_internal_stats(tree, node_idx, new_internals);
+        collect_internal_stats_workspace(ws, new_internals);
 
         const double log_lik_ratio = log_likelihood_ratio(
-            new_terminals,
-            old_terminals,
-            sigma2,
-            sigma_mu2
+            new_terminals, old_terminals, sigma2, sigma_mu2
         );
 
         const double log_prior = log_prior_ratio(
-            new_internals,
-            old_internals
+            new_internals, old_internals
         );
 
         const double mh_ratio = log_lik_ratio + log_prior;
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
+            tree.apply_same_shape_workspace(ws);
             return true;
         }
-        tree.restore_subtree(snapshot);
         return false;
     }
 
@@ -769,11 +813,7 @@ bool BackfittingEngine::draw_tree_impl(
         const int32_t node_idx = candidates[static_cast<size_t>(node_dist(rng_))];
         const int mode = sample_swap_mode(tree, node_idx);
 
-        const SubtreeSnapshot snapshot = tree.snapshot_subtree(node_idx);
-        if (!tree.propose_swap(node_idx, mode)) {
-            tree.restore_subtree(snapshot);
-            return false;
-        }
+        const Node& parent = tree.node(node_idx);
 
         std::vector<TerminalStat> old_terminals;
         collect_terminal_stats(tree, node_idx, residuals, old_terminals);
@@ -781,30 +821,69 @@ bool BackfittingEngine::draw_tree_impl(
         std::vector<InternalStat> old_internals;
         collect_internal_stats(tree, node_idx, old_internals);
 
+        std::vector<RuleOverride> overrides;
+
+        if (mode == SWAP_LEFT) {
+            const Node& child = tree.node(parent.left);
+            overrides.push_back({
+                node_idx, child.variable, child.split_idx, child.value
+            });
+            overrides.push_back({
+                parent.left, parent.variable, parent.split_idx, parent.value
+            });
+        }
+        else if (mode == SWAP_RIGHT) {
+            const Node& child = tree.node(parent.right);
+            overrides.push_back({
+                node_idx, child.variable, child.split_idx, child.value
+            });
+            overrides.push_back({
+                parent.right, parent.variable, parent.split_idx, parent.value
+            });
+        }
+        else if (mode == SWAP_BOTH) {
+            const Node& left_child = tree.node(parent.left);
+            const Node& right_child = tree.node(parent.right);
+
+            overrides.push_back({
+                node_idx, left_child.variable, left_child.split_idx, left_child.value
+            });
+            overrides.push_back({
+                parent.left, parent.variable, parent.split_idx, parent.value
+            });
+            overrides.push_back({
+                parent.right, parent.variable, parent.split_idx, parent.value
+            });
+        }
+        else {
+            throw std::runtime_error("Unknown swap mode.");
+        }
+
+        auto ws_opt = tree.evaluate_same_shape_workspace(node_idx, overrides);
+        if (!ws_opt.has_value()) return false;
+
+        const SameShapeWorkspace& ws = *ws_opt;
+
         std::vector<TerminalStat> new_terminals;
-        collect_terminal_stats(tree, node_idx, residuals, new_terminals);
+        collect_terminal_stats_workspace(ws, residuals, new_terminals);
 
         std::vector<InternalStat> new_internals;
-        collect_internal_stats(tree, node_idx, new_internals);
+        collect_internal_stats_workspace(ws, new_internals);
 
         const double log_lik_ratio = log_likelihood_ratio(
-            new_terminals,
-            old_terminals,
-            sigma2,
-            sigma_mu2
+            new_terminals, old_terminals, sigma2, sigma_mu2
         );
 
         const double log_prior = log_prior_ratio(
-            new_internals,
-            old_internals
+            new_internals, old_internals
         );
 
         const double mh_ratio = log_lik_ratio + log_prior;
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
+            tree.apply_same_shape_workspace(ws);
             return true;
         }
-        tree.restore_subtree(snapshot);
         return false;
     }
 

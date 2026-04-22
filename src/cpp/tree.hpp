@@ -45,10 +45,28 @@ struct PruneProposalLite {
     double mu;
 };
 
-struct SubtreeSnapshot {
+struct RuleOverride {
+    int32_t node_idx;
+    int32_t variable;
+    int32_t split_idx;
+    double split_value;
+};
+
+struct WorkspaceNodeState {
+    int32_t live_idx;
+    int32_t variable;
+    int32_t split_idx;
+    double value;
+
+    std::vector<std::vector<int32_t>> rows_by_var;
+    std::vector<int32_t> rows;
+    std::vector<int32_t> valid_vars;
+    std::vector<int32_t> eta_by_var;
+};
+
+struct SameShapeWorkspace {
     int32_t root_idx;
-    std::vector<int32_t> node_indices;
-    std::vector<Node> saved_nodes;
+    std::vector<WorkspaceNodeState> states;
 };
 
 class Tree {
@@ -83,17 +101,23 @@ public:
                                                 int32_t split_idx) const;
     std::optional<PruneProposalLite> propose_prune(int32_t node_idx,
                                                 double mu = 0.0f) const;
-    bool propose_change(int32_t node_idx,
-                        int32_t variable,
-                        int32_t split_idx);
-    bool propose_swap(int32_t node_idx,
-                      int mode);   // 0=left, 1=right, 2=both
 
     void apply_grow(const GrowProposalLite& proposal);
     void apply_prune(const PruneProposalLite& proposal);
     void apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt);
-    SubtreeSnapshot snapshot_subtree(int32_t root_idx) const;
-    void restore_subtree(const SubtreeSnapshot& snapshot);
+    std::optional<SameShapeWorkspace> evaluate_same_shape_workspace(
+        int32_t root_idx,
+        const std::vector<RuleOverride>& overrides
+    ) const;
+    void apply_same_shape_workspace(const SameShapeWorkspace& ws);
+
+    bool build_same_shape_workspace_dfs(
+        int32_t live_idx,
+        const std::vector<std::vector<int32_t>>& rows_by_var,
+        const std::vector<RuleOverride>& overrides,
+        SameShapeWorkspace& ws
+    ) const;
+    void build_workspace_cache(WorkspaceNodeState& ws_node) const;
     
     void serialize(std::vector<int32_t>& variable,
                    std::vector<double>& value,
@@ -139,17 +163,18 @@ private:
 
     bool value_present_and_splittable(const Node& node) const;
 
-    Tree copy_subtree(int32_t node_idx) const;
-
     void retire_subtree(int32_t root_idx);
-
-    bool update_subtree_from_root(int32_t node_idx);
 
     void overwrite_subtree_same_shape(
         int32_t live_idx,
         const Tree& rebuilt,
         int32_t rebuilt_idx
     );
+
+    const RuleOverride* find_override(
+        const std::vector<RuleOverride>& overrides,
+        int32_t node_idx
+    ) const;
 };
 
 void bind_tree(py::module_& m);
