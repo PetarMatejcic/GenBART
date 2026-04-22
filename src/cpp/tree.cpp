@@ -271,22 +271,17 @@ int32_t Tree::split_pos_of_value(const std::vector<int32_t>& ord_v,
     return pos;
 }
 
-bool Tree::partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_by_var,
-                                 int32_t variable,
-                                 const double value,
-                                 std::vector<std::vector<int32_t>>& left_by_var,
-                                 std::vector<std::vector<int32_t>>& right_by_var) const{
+bool Tree::partition_rows_by_var(
+    const std::vector<std::vector<int32_t>>& rows_by_var,
+    int32_t variable,
+    const double value,
+    std::vector<std::vector<int32_t>>& left_by_var,
+    std::vector<std::vector<int32_t>>& right_by_var
+) const {
     const auto& ord_split = rows_by_var[static_cast<size_t>(variable)];
+    const int32_t n_node = static_cast<int32_t>(ord_split.size());
 
-    std::vector<int32_t> left_rows;
-    left_rows.reserve(ord_split.size());
-
-    for (int32_t row : ord_split) {
-        double x = X_[static_cast<size_t>(row) * p_ + variable];
-        if (x <= value) left_rows.push_back(row);
-    }
-
-    if (left_rows.empty() || left_rows.size() == ord_split.size()) {
+    if (n_node <= 1) {
         return false;
     }
 
@@ -296,19 +291,36 @@ bool Tree::partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_b
         stamp_id_ = 1;
     }
 
-    for (int32_t row : left_rows) {
-        membership_stamp_[static_cast<size_t>(row)] = stamp_id_;
+    int32_t left_count = 0;
+
+    for (int32_t row : ord_split) {
+        const double x = X_[static_cast<size_t>(row) * p_ + variable];
+        if (x <= value) {
+            membership_stamp_[static_cast<size_t>(row)] = stamp_id_;
+            ++left_count;
+        }
     }
 
-    left_by_var.assign(static_cast<size_t>(p_), {});
-    right_by_var.assign(static_cast<size_t>(p_), {});
+    if (left_count == 0 || left_count == n_node) {
+        return false;
+    }
+
+    const int32_t right_count = n_node - left_count;
+
+    left_by_var.clear();
+    right_by_var.clear();
+    left_by_var.resize(static_cast<size_t>(p_));
+    right_by_var.resize(static_cast<size_t>(p_));
 
     for (int32_t v = 0; v < p_; ++v) {
         const auto& ord_v = rows_by_var[static_cast<size_t>(v)];
         auto& left_v = left_by_var[static_cast<size_t>(v)];
         auto& right_v = right_by_var[static_cast<size_t>(v)];
-        left_v.reserve(ord_v.size());
-        right_v.reserve(ord_v.size());
+
+        left_v.clear();
+        right_v.clear();
+        left_v.reserve(static_cast<size_t>(left_count));
+        right_v.reserve(static_cast<size_t>(right_count));
 
         for (int32_t row : ord_v) {
             if (membership_stamp_[static_cast<size_t>(row)] == stamp_id_) {
@@ -319,7 +331,7 @@ bool Tree::partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_b
         }
     }
 
-    return !(left_by_var[0].empty() || right_by_var[0].empty());
+    return true;
 }
 
 std::optional<GrowProposalLite> Tree::propose_grow(
