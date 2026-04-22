@@ -85,9 +85,7 @@ void BackfittingEngine::backfitting_sweep(
 
         draw_tree_impl(j, residuals, sigma2, sigma_mu2, alpha, beta, move_distribution);
 
-        draw_mu_impl( j, residuals, sigma2, sigma_mu2);
-
-        apply_tree_to_residuals_impl(j, residuals, -1.0);
+        draw_mu_and_subtract_impl( j, residuals, sigma2, sigma_mu2);
     }
 }
 
@@ -354,6 +352,41 @@ void BackfittingEngine::draw_mu_impl(
 
         std::normal_distribution<double> dist(mean, std::sqrt(var));
         node.mu = static_cast<double>(dist(rng_));
+    }
+}
+
+void BackfittingEngine::draw_mu_and_subtract_impl(
+    int32_t j,
+    DoubleArray residuals,
+    double sigma2,
+    double sigma_mu2
+) {
+    auto r = residuals.mutable_unchecked<1>();
+    Tree& tree = forest_[static_cast<size_t>(j)];
+    const auto& terminals = tree.terminal_nodes(false);
+
+    for (int32_t node_idx : terminals) {
+        Node& node = tree.node(node_idx);
+        const auto& rows = node.rows;
+
+        double sum_r = 0.0;
+        for (int32_t row : rows) {
+            sum_r += r(row);
+        }
+
+        const double n_leaf = static_cast<double>(rows.size());
+        const double denom = n_leaf * sigma_mu2 + sigma2;
+        const double mean = (sigma_mu2 * sum_r) / denom;
+        const double var = (sigma2 * sigma_mu2) / denom;
+
+        std::normal_distribution<double> dist(mean, std::sqrt(var));
+        const double new_mu = static_cast<double>(dist(rng_));
+
+        node.mu = new_mu;
+
+        for (int32_t row : rows) {
+            r(row) -= new_mu;
+        }
     }
 }
 

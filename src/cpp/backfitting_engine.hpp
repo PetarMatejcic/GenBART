@@ -120,6 +120,13 @@ private:
         double sigma_mu2
     );
 
+    void draw_mu_and_subtract_impl(
+        int32_t j,
+        DoubleArray residuals,
+        double sigma2,
+        double sigma_mu2
+    );
+
     void apply_tree_to_residuals_impl(
         int32_t j,
         DoubleArray residuals,
