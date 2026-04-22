@@ -31,8 +31,6 @@ struct Node {
     bool is_internal() const noexcept { return left != -1; }
 };
 
-struct ProposalSubtree;
-
 struct GrowProposalLite {
     int32_t node_idx;
     int32_t variable;
@@ -45,6 +43,12 @@ struct GrowProposalLite {
 struct PruneProposalLite {
     int32_t node_idx;
     double mu;
+};
+
+struct SubtreeSnapshot {
+    int32_t root_idx;
+    std::vector<int32_t> node_indices;
+    std::vector<Node> saved_nodes;
 };
 
 class Tree {
@@ -79,16 +83,18 @@ public:
                                                 int32_t split_idx) const;
     std::optional<PruneProposalLite> propose_prune(int32_t node_idx,
                                                 double mu = 0.0f) const;
-    std::optional<ProposalSubtree> propose_change(int32_t node_idx,
-                                                int32_t variable,
-                                                int32_t split_idx) const;
-    std::optional<ProposalSubtree> propose_swap(int32_t node_idx,
-                                                int mode) const;   // 0=left, 1=right, 2=both
+    bool propose_change(int32_t node_idx,
+                        int32_t variable,
+                        int32_t split_idx);
+    bool propose_swap(int32_t node_idx,
+                      int mode);   // 0=left, 1=right, 2=both
 
     void apply_grow(const GrowProposalLite& proposal);
     void apply_prune(const PruneProposalLite& proposal);
     void apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt);
-
+    SubtreeSnapshot snapshot_subtree(int32_t root_idx) const;
+    void restore_subtree(const SubtreeSnapshot& snapshot);
+    
     void serialize(std::vector<int32_t>& variable,
                    std::vector<double>& value,
                    std::vector<int32_t>& left,
@@ -144,10 +150,6 @@ private:
         const Tree& rebuilt,
         int32_t rebuilt_idx
     );
-};
-
-struct ProposalSubtree {
-    Tree subtree;
 };
 
 void bind_tree(py::module_& m);

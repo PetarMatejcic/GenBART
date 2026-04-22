@@ -462,6 +462,33 @@ bool Tree::value_present_and_splittable(const Node& cur) const {
     return x_last != x_next;
 }
 
+SubtreeSnapshot Tree::snapshot_subtree(int32_t root_idx) const {
+    std::vector<int32_t> idxs;
+    collect_subtree_indices(root_idx, idxs);
+
+    SubtreeSnapshot out;
+    out.root_idx = root_idx;
+    out.node_indices = idxs;
+    out.saved_nodes.reserve(idxs.size());
+
+    for (int32_t idx : idxs) {
+        out.saved_nodes.push_back(node(idx));
+    }
+
+    return out;
+}
+
+void Tree::restore_subtree(const SubtreeSnapshot& snapshot) {
+    if (snapshot.node_indices.size() != snapshot.saved_nodes.size()) {
+        throw std::runtime_error("snapshot_subtree/restore_subtree size mismatch.");
+    }
+
+    for (size_t k = 0; k < snapshot.node_indices.size(); ++k) {
+        const int32_t idx = snapshot.node_indices[k];
+        nodes_[static_cast<size_t>(idx)] = snapshot.saved_nodes[k];
+    }
+}
+
 Tree Tree::copy_subtree(int32_t node_idx) const {
     std::vector<int32_t> old_to_new(nodes_.size(), -1);
     std::vector<int32_t> stack{node_idx};
@@ -580,10 +607,10 @@ bool Tree::update_subtree_from_root(int32_t node_idx) {
     return true;
 }
 
-std::optional<ProposalSubtree> Tree::propose_change(int32_t node_idx,
-                                                    int32_t variable,
-                                                    int32_t split_idx) const {
-    const Node& old = node(node_idx);
+bool Tree::propose_change(int32_t node_idx,
+                          int32_t variable,
+                          int32_t split_idx) {
+    Node& old = node(node_idx);
 
     if (old.is_terminal()) {
         throw std::runtime_error("Cannot change split rule of a terminal node.");
@@ -594,27 +621,20 @@ std::optional<ProposalSubtree> Tree::propose_change(int32_t node_idx,
         throw std::runtime_error("Split index is not valid for this node.");
     }
 
-    Tree proposal = copy_subtree(node_idx);
-    Node& root = proposal.node(proposal.root_);
+    old.variable = variable;
+    old.value = split_value_at(
+        old.rows_by_var.at(static_cast<size_t>(variable)),
+        variable,
+        split_idx
+    );
+    old.split_idx = split_idx;
 
-    root.variable = variable;
-    root.value = proposal.split_value_at(root.rows_by_var[static_cast<size_t>(variable)],
-                                         variable,
-                                         split_idx);
-    root.split_idx = split_idx;
-
-    ProposalSubtree out{std::move(proposal)};
-
-    if (!out.subtree.update_subtree_from_root(out.subtree.root_)) {
-        return std::nullopt;
-    }
-
-    return out;
+    return update_subtree_from_root(node_idx);
 }
 
-std::optional<ProposalSubtree> Tree::propose_swap(int32_t node_idx,
-                                                  int mode) const {
-    const Node& old_parent = node(node_idx);
+bool Tree::propose_swap(int32_t node_idx,
+                        int mode) {
+    Node& old_parent = node(node_idx);
     if (old_parent.is_terminal()) {
         throw std::runtime_error("swap requires an internal parent.");
     }
@@ -624,7 +644,7 @@ std::optional<ProposalSubtree> Tree::propose_swap(int32_t node_idx,
 
     if (mode == 0) {   // left
         Node& child = proposal.node(parent.left);
-        if (child.is_terminal()) return std::nullopt;
+        if (child.is_terminal()) return false;
 
         std::swap(parent.variable, child.variable);
         std::swap(parent.value, child.value);
@@ -632,7 +652,7 @@ std::optional<ProposalSubtree> Tree::propose_swap(int32_t node_idx,
     }
     else if (mode == 1) {   // right
         Node& child = proposal.node(parent.right);
-        if (child.is_terminal()) return std::nullopt;
+        if (child.is_terminal()) return false;
 
         std::swap(parent.variable, child.variable);
         std::swap(parent.value, child.value);
@@ -641,7 +661,7 @@ std::optional<ProposalSubtree> Tree::propose_swap(int32_t node_idx,
     else if (mode == 2) {   // both
         Node& left_child = proposal.node(parent.left);
         Node& right_child = proposal.node(parent.right);
-        if (left_child.is_terminal() || right_child.is_terminal()) return std::nullopt;
+        if (left_child.is_terminal() || right_child.is_terminal()) return false;
 
         const int32_t old_parent_var = parent.variable;
         const double old_parent_val = parent.value;
@@ -663,13 +683,7 @@ std::optional<ProposalSubtree> Tree::propose_swap(int32_t node_idx,
         throw std::runtime_error("swap mode must be 0, 1, or 2.");
     }
 
-    ProposalSubtree out{std::move(proposal)};
-
-    if (!out.subtree.update_subtree_from_root(out.subtree.root_)) {
-        return std::nullopt;
-    }
-
-    return out;
+    return update_subtree_from_root(node_idx);
 }
 
 void Tree::serialize(std::vector<int32_t>& variable,
@@ -832,9 +846,6 @@ void Tree::validate() const {
 }
 
 void bind_tree(py::module_& m) {
-    py::class_<ProposalSubtree>(m, "_TreeProposal")
-        .def_readonly("subtree", &ProposalSubtree::subtree);
-
     py::class_<Tree>(m, "_Tree")
         .def(
             py::init([](py::array_t<double, py::array::c_style | py::array::forcecast> X_in) {

@@ -686,10 +686,12 @@ bool BackfittingEngine::draw_tree_impl(
 
         auto rule_opt = sample_uniform_change_rule(tree, node_idx);
         if (!rule_opt.has_value()) return false;
-
-        auto proposal_opt = tree.propose_change(node_idx, rule_opt->first, rule_opt->second);
-        if (!proposal_opt.has_value()) return false;
-        const ProposalSubtree& proposal = *proposal_opt;
+        
+        const SubtreeSnapshot snapshot = tree.snapshot_subtree(node_idx);
+        if (!tree.propose_change(node_idx, rule_opt->first, rule_opt->second)) {
+            tree.restore_subtree(snapshot);
+            return false;
+        }
 
         std::vector<TerminalStat> old_terminals;
         collect_terminal_stats(tree, node_idx, residuals, old_terminals);
@@ -698,10 +700,10 @@ bool BackfittingEngine::draw_tree_impl(
         collect_internal_stats(tree, node_idx, old_internals);
 
         std::vector<TerminalStat> new_terminals;
-        collect_terminal_stats(proposal.subtree, proposal.subtree.root(), residuals, new_terminals);
+        collect_terminal_stats(tree, node_idx, residuals, new_terminals);
 
         std::vector<InternalStat> new_internals;
-        collect_internal_stats(proposal.subtree, proposal.subtree.root(), new_internals);
+        collect_internal_stats(tree, node_idx, new_internals);
 
         const double log_lik_ratio = log_likelihood_ratio(
             new_terminals,
@@ -718,9 +720,9 @@ bool BackfittingEngine::draw_tree_impl(
         const double mh_ratio = log_lik_ratio + log_prior;
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.apply_rebuilt_subtree_same_shape(node_idx, proposal.subtree);
             return true;
         }
+        tree.restore_subtree(snapshot);
         return false;
     }
 
@@ -734,9 +736,11 @@ bool BackfittingEngine::draw_tree_impl(
         const int32_t node_idx = candidates[static_cast<size_t>(node_dist(rng_))];
         const int mode = sample_swap_mode(tree, node_idx);
 
-        auto proposal_opt = tree.propose_swap(node_idx, mode);
-        if (!proposal_opt.has_value()) return false;
-        const ProposalSubtree& proposal = *proposal_opt;
+        const SubtreeSnapshot snapshot = tree.snapshot_subtree(node_idx);
+        if (!tree.propose_swap(node_idx, mode)) {
+            tree.restore_subtree(snapshot);
+            return false;
+        }
 
         std::vector<TerminalStat> old_terminals;
         collect_terminal_stats(tree, node_idx, residuals, old_terminals);
@@ -745,10 +749,10 @@ bool BackfittingEngine::draw_tree_impl(
         collect_internal_stats(tree, node_idx, old_internals);
 
         std::vector<TerminalStat> new_terminals;
-        collect_terminal_stats(proposal.subtree, proposal.subtree.root(), residuals, new_terminals);
+        collect_terminal_stats(tree, node_idx, residuals, new_terminals);
 
         std::vector<InternalStat> new_internals;
-        collect_internal_stats(proposal.subtree, proposal.subtree.root(), new_internals);
+        collect_internal_stats(tree, node_idx, new_internals);
 
         const double log_lik_ratio = log_likelihood_ratio(
             new_terminals,
@@ -765,9 +769,9 @@ bool BackfittingEngine::draw_tree_impl(
         const double mh_ratio = log_lik_ratio + log_prior;
 
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.apply_rebuilt_subtree_same_shape(node_idx, proposal.subtree);
             return true;
         }
+        tree.restore_subtree(snapshot);
         return false;
     }
 
