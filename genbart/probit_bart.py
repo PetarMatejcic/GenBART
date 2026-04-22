@@ -47,9 +47,6 @@ class ProbitBart(BaseBART):
 
         for _ in range(self.n_burn):
             self._one_mcmc_iteration()
-
-        for _ in range(self.n_samples):
-            self._one_mcmc_iteration()
             
         for _ in range(self.n_samples):
             self._one_mcmc_iteration()
