@@ -719,18 +719,18 @@ bool BackfittingEngine::draw_tree_impl(
 
         auto rule_opt = sample_uniform_change_rule(tree, node_idx);
         if (!rule_opt.has_value()) return false;
+    
+        std::vector<TerminalStat> old_terminals;
+        collect_terminal_stats(tree, node_idx, residuals, old_terminals);
+
+        std::vector<InternalStat> old_internals;
+        collect_internal_stats(tree, node_idx, old_internals);
         
         const SubtreeSnapshot snapshot = tree.snapshot_subtree(node_idx);
         if (!tree.propose_change(node_idx, rule_opt->first, rule_opt->second)) {
             tree.restore_subtree(snapshot);
             return false;
         }
-
-        std::vector<TerminalStat> old_terminals;
-        collect_terminal_stats(tree, node_idx, residuals, old_terminals);
-
-        std::vector<InternalStat> old_internals;
-        collect_internal_stats(tree, node_idx, old_internals);
 
         std::vector<TerminalStat> new_terminals;
         collect_terminal_stats(tree, node_idx, residuals, new_terminals);
@@ -769,17 +769,17 @@ bool BackfittingEngine::draw_tree_impl(
         const int32_t node_idx = candidates[static_cast<size_t>(node_dist(rng_))];
         const int mode = sample_swap_mode(tree, node_idx);
 
-        const SubtreeSnapshot snapshot = tree.snapshot_subtree(node_idx);
-        if (!tree.propose_swap(node_idx, mode)) {
-            tree.restore_subtree(snapshot);
-            return false;
-        }
-
         std::vector<TerminalStat> old_terminals;
         collect_terminal_stats(tree, node_idx, residuals, old_terminals);
 
         std::vector<InternalStat> old_internals;
         collect_internal_stats(tree, node_idx, old_internals);
+
+        const SubtreeSnapshot snapshot = tree.snapshot_subtree(node_idx);
+        if (!tree.propose_swap(node_idx, mode)) {
+            tree.restore_subtree(snapshot);
+            return false;
+        }
 
         std::vector<TerminalStat> new_terminals;
         collect_terminal_stats(tree, node_idx, residuals, new_terminals);
