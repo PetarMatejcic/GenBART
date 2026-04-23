@@ -92,7 +92,7 @@ class ProbitBart(BaseBART):
             return out
 
     def predict(self, X, threshold: float = 0.5):
-        probs = self.predict_probs(X)[0]
+        probs = self.predict_probs(X)["probs"]
         return probs >= threshold
 
     def _one_mcmc_iteration(self):
