@@ -13,6 +13,7 @@ class BaseBART:
     n_samples: int
     move_distribution: tuple
     rng: int | None
+    random_state: int
 
     X: np.ndarray
     n: int
@@ -36,7 +37,7 @@ class BaseBART:
                  n_burn=200,
                  n_samples=1000,
                  move_distribution=(0.25, 0.25, 0.40, 0.10),
-                 random_state=None):
+                 random_state=0):
         self.m = m
         self.alpha = alpha
         self.beta = beta
@@ -45,6 +46,7 @@ class BaseBART:
         self.n_samples = n_samples
         self.move_distribution = move_distribution
         self.rng = np.random.default_rng(seed=random_state)
+        self.random_state = random_state
 
         self.engine = None
 
@@ -52,10 +54,10 @@ class BaseBART:
         self._vi_sum = None
 
     def _init_trees(self):
-        rows_by_var = [np.argsort(self.X[:, var], kind="mergesort") for var in range(self.p)]
-        self.extreme_values = [(self.X[x[0], var], self.X[x[-1], var]) for var, x in enumerate(rows_by_var)]
-        seed = int(self.rng.integers(0, 2**63 - 1))
-        self.engine = _BackfittingEngine(self.X, self.m, seed)
+        self.extreme_values = [(self.X[:, var].min(),
+                               self.X[:, var].max())
+                               for var in range(self.p)]
+        self.engine = _BackfittingEngine(self.X, self.m, self.random_state)
         self.engine.initialize_root_forest()
 
     def _init_common_arrays(self):
@@ -69,7 +71,7 @@ class BaseBART:
         self._packed_mu_chunks = []
         self._packed_tree_offset = [0]
         self._packed_n_trees = 0
-        
+
     def _finalize_packed_forest(self):
         expected_trees = self.n_samples * self.m
         if self._packed_n_trees != expected_trees:
@@ -98,10 +100,10 @@ class BaseBART:
 
     def variable_importance(self):
         return self._vi_sum / self.n_samples
-    
+
     def _backfitting_sweep(self):
         if self.engine is None:
-            raise RuntimeError("Backfitting engin is not initialized!")
+            raise RuntimeError("Backfitting engine is not initialized!")
         self.engine.backfitting_sweep(self.residuals,
                                       self.sigma2,
                                       self.sigma_mu2,
@@ -109,12 +111,12 @@ class BaseBART:
                                       self.beta,
                                       self.move_distribution,
                                       )
-    
+
     def _serialize_forest(self):
         if self.engine is None:
             raise RuntimeError("Backfitting engine not initialized.")
         return self.engine.serialize_forest()
-    
+
     def _append_serialized_forest_block(self,
                                         variable: np.ndarray,
                                         value: np.ndarray,

@@ -15,16 +15,16 @@ class ProbitBart(BaseBART):
                  n_samples=1000,
                  move_distribution=(0.25, 0.25, 0.40, 0.10),
                  random_state=None):
-        
-        super().__init__(m = m,
-                            alpha = alpha,
-                            beta = beta,
-                            k = k,
-                            n_burn = n_burn,
-                            n_samples = n_samples,
-                            move_distribution = move_distribution,
-                            random_state=random_state)
-    
+
+        super().__init__(m=m,
+                         alpha=alpha,
+                         beta=beta,
+                         k=k,
+                         n_burn=n_burn,
+                         n_samples=n_samples,
+                         move_distribution=move_distribution,
+                         random_state=random_state)
+
     def fit(self, X, y):
         self.X = np.asarray(X)
         if self.X.ndim == 1:
@@ -44,15 +44,19 @@ class ProbitBart(BaseBART):
         self.sigma2 = 1.0
         self.sigma_mu2 = (3.0 / (self.k * np.sqrt(self.m))) ** 2
 
-
         for _ in range(self.n_burn):
             self._one_mcmc_iteration()
-            
+
         for _ in range(self.n_samples):
             self._one_mcmc_iteration()
-            
+
             variable, value, left, right, mu, tree_offset = self._serialize_forest()
-            self._append_serialized_forest_block(variable, value, left, right, mu, tree_offset)
+            self._append_serialized_forest_block(variable,
+                                                 value,
+                                                 left,
+                                                 right,
+                                                 mu,
+                                                 tree_offset)
 
             mask = variable >= 0
             if np.any(mask):
@@ -61,7 +65,7 @@ class ProbitBart(BaseBART):
                 self._vi_sum += variable_counts / variable_total
         self._finalize_packed_forest()
         return self
-    
+
     def predict_probs(self, X, level: float = 0.90):
         data = np.asarray(X)
         a = 1 - level
@@ -81,15 +85,16 @@ class ProbitBart(BaseBART):
             g = self.packed_forest.draw_sums_matrix(data)
             probs = norm.cdf(g)
             out["probs"] = probs.mean(axis=0)
-            conf_low, conf_high = np.quantile(probs, [a/2.0, 1 - a/2.0], axis=0)
+            conf_low, conf_high = np.quantile(probs,
+                                              [a/2.0, 1 - a/2.0], axis=0)
             out["conf_int_low"] = conf_low
             out["conf_int_high"] = conf_high
             return out
-    
+
     def predict(self, X, threshold: float = 0.5):
         probs = self.predict_probs(X)[0]
         return probs >= threshold
-        
+
     def _one_mcmc_iteration(self):
         old_z = self.y_work.copy()
         self._draw_latent_z()
@@ -104,18 +109,15 @@ class ProbitBart(BaseBART):
         a_pos = -fitted_sums[pos]
         b_pos = np.full(a_pos.shape, np.inf)
         self.y_work[pos] = truncnorm.rvs(a=a_pos,
-                                b=b_pos,
-                                loc=fitted_sums[pos],
-                                scale=1.0,
-                                random_state=self.rng,)
+                                         b=b_pos,
+                                         loc=fitted_sums[pos],
+                                         scale=1.0,
+                                         random_state=self.rng,)
 
         a_neg = np.full(np.sum(neg), -np.inf)
         b_neg = -fitted_sums[neg]
         self.y_work[neg] = truncnorm.rvs(a=a_neg,
-                                b=b_neg,
-                                loc=fitted_sums[neg],
-                                scale=1.0,
-                                random_state=self.rng,)
-        
-    
-    
+                                         b=b_neg,
+                                         loc=fitted_sums[neg],
+                                         scale=1.0,
+                                         random_state=self.rng,)

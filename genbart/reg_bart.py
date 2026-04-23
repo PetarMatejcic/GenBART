@@ -20,14 +20,14 @@ class RegBart(BaseBART):
                  n_burn=200,
                  n_samples=1000,
                  move_distribution=(0.25, 0.25, 0.40, 0.10),
-                 random_state=None):
-        super().__init__(m = m,
-                         alpha = alpha,
-                         beta = beta,
-                         k = k,
-                         n_burn = n_burn,
-                         n_samples = n_samples,
-                         move_distribution = move_distribution,
+                 random_state=0):
+        super().__init__(m=m,
+                         alpha=alpha,
+                         beta=beta,
+                         k=k,
+                         n_burn=n_burn,
+                         n_samples=n_samples,
+                         move_distribution=move_distribution,
                          random_state=random_state)
         self.nu = nu
         self.q = q
@@ -71,9 +71,14 @@ class RegBart(BaseBART):
 
         for _ in range(self.n_samples):
             self._one_mcmc_iteration()
-            
+
             variable, value, left, right, mu, tree_offset = self._serialize_forest()
-            self._append_serialized_forest_block(variable, value, left, right, mu, tree_offset)
+            self._append_serialized_forest_block(variable,
+                                                 value,
+                                                 left,
+                                                 right,
+                                                 mu,
+                                                 tree_offset)
 
             mask = variable >= 0
             if np.any(mask):
@@ -103,7 +108,8 @@ class RegBart(BaseBART):
             else:
                 raise ValueError
             if conf_int:
-                low_int, high_int = np.quantile(predictions, [a/2.0, 1 - a/2.0])
+                low_int, high_int = np.quantile(predictions,
+                                                [a/2.0, 1 - a/2.0])
                 out["conf_int_low"] = self._inverse_transform_y(low_int)
                 out["conf_int_high"] = self._inverse_transform_y(high_int)
             return out
@@ -118,16 +124,17 @@ class RegBart(BaseBART):
             else:
                 raise ValueError
             if conf_int:
-                low_ints, high_ints = np.quantile(predictions, [a/2.0, 1 - a/2.0], axis=0)
+                low_ints, high_ints = np.quantile(predictions,
+                                                  [a/2.0, 1 - a/2.0], axis=0)
                 out["conf_int_low"] = self._inverse_transform_y(low_ints)
                 out["conf_int_high"] = self._inverse_transform_y(high_ints)
             return out
-    
+
     def marginalize(self,
                     variable: int,
                     grid,
                     sampling_size: int = 100,
-                    level = 0.9):
+                    level=0.9):
         lows = [ev[0] for ev in self.extreme_values]
         highs = [ev[1] for ev in self.extreme_values]
 
