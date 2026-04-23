@@ -2,7 +2,7 @@
 
 GenBART is a from-scratch Python/C++ implementation of **Bayesian Additive Regression Trees (BART)**.
 
-GenBART started as part of my master's thesis work, but with the goal of building a working general-purpose BART package.
+GenBART started as part of my master's thesis work, but with the goal of building a practical general-purpose BART package.
 
 - From-scratch implementation of **Bayesian Additive Regression Trees**
 - **Regression BART** and **probit BART** interfaces
@@ -14,8 +14,10 @@ GenBART started as part of my master's thesis work, but with the goal of buildin
 ## Preview
 
 <p align="center">
-  <img src="docs/images/readme_plot_1.png" alt="2D BART fit" width="47%" />
-  <img src="docs/images/readme_plot_2.png" alt="3D BART surface approximation" width="47%" />
+  <img src="docs/images/readme_plot_1.png" alt="2D BART fit" width="90%" />
+</p>
+<p align="center">
+  <img src="docs/images/readme_plot_2.png" alt="3D BART surface approximation" width="90%" />
 </p>
 
 <p align="center">
