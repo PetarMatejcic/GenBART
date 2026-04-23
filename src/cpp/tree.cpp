@@ -495,6 +495,172 @@ void Tree::apply_prune(const PruneProposalLite& proposal) {
     structure_cache_dirty_ = true;
 }
 
+std::optional<ChangeProposalLite> Tree::propose_change(
+    int32_t node_idx,
+    int32_t variable,
+    int32_t split_idx
+) const {
+    const Node& node = this->node(node_idx);
+    if (node.is_terminal()) {
+        throw std::runtime_error("Cannot change a terminal node.");
+    }
+
+    const int32_t eta = node.eta_by_var.at(static_cast<size_t>(variable));
+    if (eta <= 0 || split_idx < 0 || split_idx >= eta) {
+        throw std::runtime_error("Split is not valid for this node.");
+    }
+
+    const double split_value =
+        split_value_at(node.rows_by_var.at(static_cast<size_t>(variable)),
+                       variable,
+                       split_idx);
+
+    std::vector<RuleOverride> overrides{
+        RuleOverride{node_idx, variable, split_idx, split_value}
+    };
+    auto ws_opt = evaluate_same_shape_workspace(node_idx, overrides);
+    if (!ws_opt.has_value()) {
+        return std::nullopt;
+    }
+
+    return ChangeProposalLite{
+        node_idx,
+        variable,
+        split_idx,
+        split_value,
+        std::move(*ws_opt)
+    };
+}
+
+void Tree::apply_change(const ChangeProposalLite& proposal) {
+    apply_same_shape_workspace(proposal.workspace);
+}
+
+std::optional<SwapProposalLite> Tree::propose_swap(
+    int32_t node_idx,
+    int mode
+) const {
+    const Node& parent = node(node_idx);
+    if (parent.is_terminal()) {
+        throw std::runtime_error("Cannot swap at a terminal node.");
+    }
+
+    const Node& left_child = node(parent.left);
+    const Node& right_child = node(parent.right);
+
+    const bool left_internal = left_child.is_internal();
+    const bool right_internal = right_child.is_internal();
+
+    if (!left_internal && !right_internal) {
+        throw std::runtime_error("Cannot swap at a node with two terminal children.");
+    }
+
+    std::vector<RuleOverride> overrides;
+
+    if (mode == SWAP_LEFT) {
+        if (!left_internal) {
+            throw std::runtime_error("SWAP_LEFT requested but left child is terminal.");
+        }
+
+        overrides.push_back(
+            RuleOverride{
+                node_idx,
+                left_child.variable,
+                left_child.split_idx,
+                left_child.value
+            }
+        );
+        overrides.push_back(
+            RuleOverride{
+                parent.left,
+                parent.variable,
+                parent.split_idx,
+                parent.value
+            }
+        );
+    }
+    else if (mode == SWAP_RIGHT) {
+        if (!right_internal) {
+            throw std::runtime_error("SWAP_RIGHT requested but right child is terminal.");
+        }
+
+        overrides.push_back(
+            RuleOverride{
+                node_idx,
+                right_child.variable,
+                right_child.split_idx,
+                right_child.value
+            }
+        );
+        overrides.push_back(
+            RuleOverride{
+                parent.right,
+                parent.variable,
+                parent.split_idx,
+                parent.value
+            }
+        );
+    }
+    else if (mode == SWAP_BOTH) {
+        if (!left_internal || !right_internal) {
+            throw std::runtime_error("SWAP_BOTH requested but both children are not internal.");
+        }
+
+        const bool same_rule =
+            (left_child.variable == right_child.variable) &&
+            (left_child.split_idx == right_child.split_idx) &&
+            (left_child.value == right_child.value);
+
+        if (!same_rule) {
+            throw std::runtime_error("SWAP_BOTH requires both children to share the same rule.");
+        }
+
+        overrides.push_back(
+            RuleOverride{
+                node_idx,
+                left_child.variable,
+                left_child.split_idx,
+                left_child.value
+            }
+        );
+        overrides.push_back(
+            RuleOverride{
+                parent.left,
+                parent.variable,
+                parent.split_idx,
+                parent.value
+            }
+        );
+        overrides.push_back(
+            RuleOverride{
+                parent.right,
+                parent.variable,
+                parent.split_idx,
+                parent.value
+            }
+        );
+    }
+    else {
+        throw std::runtime_error("Unknown swap mode.");
+    }
+
+    auto ws_opt = evaluate_same_shape_workspace(node_idx, overrides);
+    if (!ws_opt.has_value()) {
+        return std::nullopt;
+    }
+
+    return SwapProposalLite{
+        node_idx,
+        mode,
+        std::move(overrides),
+        std::move(*ws_opt)
+    };
+}
+
+void Tree::apply_swap(const SwapProposalLite& proposal) {
+    apply_same_shape_workspace(proposal.workspace);
+}
+
 void Tree::apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt) {
     overwrite_subtree_same_shape(node_idx, rebuilt, rebuilt.root());
     structure_cache_dirty_ = true;
@@ -888,10 +1054,33 @@ void bind_tree(py::module_& m) {
             "Serialize the tree into flat node arrays for variable, value, children, and leaf means.")
         .def("validate", &Tree::validate,
             "Check tree structure and cached state for consistency.")
-        .def("propose_grow", &Tree::propose_grow,
-            "Build a grow proposal for a terminal node using the given split rule.",
-             py::arg("node_idx"), py::arg("variable"), py::arg("split_idx"))
-        .def("propose_prune", &Tree::propose_prune,
-            "Build a prune proposal that collapses an internal node into a leaf.",
-             py::arg("node_idx"), py::arg("mu") = 0.0f);
+
+        .def("test_grow", [](Tree& t, int32_t node_idx, int32_t variable, int32_t split_idx) {
+            auto prop = t.propose_grow(node_idx, variable, split_idx);
+            if (!prop.has_value()) return false;
+            t.apply_grow(*prop);
+            return true;
+            },
+            "Test function used to test proposal and application of grow moves.")
+        .def("test_prune", [](Tree& t, int32_t node_idx, double mu) {
+            auto prop = t.propose_prune(node_idx, mu);
+            if (!prop.has_value()) return false;
+            t.apply_prune(*prop);
+            return true;
+            },
+            "Test function used to test proposal and application of prune moves.")
+        .def("test_change", [](Tree& t, int32_t node_idx, int32_t variable, int32_t split_idx) {
+            auto prop = t.propose_change(node_idx, variable, split_idx);
+            if (!prop.has_value()) return false;
+            t.apply_change(*prop);
+            return true;
+            },
+            "Test function used to test proposal and application of change moves.")
+        .def("test_swap", [](Tree& t, int32_t node_idx, int mode) {
+            auto prop = t.propose_swap(node_idx, mode);
+            if (!prop.has_value()) return false;
+            t.apply_swap(*prop);
+            return true;
+            },
+            "Test function used to test proposal and application of swap moves.");
 }

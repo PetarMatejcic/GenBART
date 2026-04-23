@@ -749,28 +749,25 @@ bool BackfittingEngine::draw_tree_impl(
         std::vector<InternalStat> old_internals;
         collect_internal_stats(tree, node_idx, old_internals);
 
-        std::vector<RuleOverride> overrides{
-            RuleOverride{node_idx, new_var, new_split_idx, new_split_value}
-        };
-        auto ws_opt = tree.evaluate_same_shape_workspace(node_idx, overrides);
-        if (!ws_opt.has_value()) return false;
-        const SameShapeWorkspace& ws = *ws_opt;
+        auto proposal_opt = tree.propose_change(node_idx, new_var, new_split_idx);
+        if (!proposal_opt.has_value()) return false;
+        const ChangeProposalLite& proposal = *proposal_opt;
 
         std::vector<TerminalStat> new_terminals;
-        collect_terminal_stats_workspace(ws, residuals, new_terminals);
+        collect_terminal_stats_workspace(proposal.workspace, residuals, new_terminals);
         std::vector<InternalStat> new_internals;
-        collect_internal_stats_workspace(ws, new_internals);
-        const double log_lik_ratio = log_likelihood_ratio(
-            new_terminals, old_terminals, sigma2, sigma_mu2
-        );
+        collect_internal_stats_workspace(proposal.workspace, new_internals);
 
-        const double log_prior = log_prior_ratio(
-            new_internals, old_internals
-        );
+        const double log_lik_ratio =
+            log_likelihood_ratio(new_terminals, old_terminals, sigma2, sigma_mu2);
+
+        const double log_prior =
+            log_prior_ratio(new_internals, old_internals);
 
         const double mh_ratio = log_lik_ratio + log_prior;
+
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.apply_same_shape_workspace(ws);
+            tree.apply_change(proposal);
             return true;
         }
         return false;
@@ -791,63 +788,25 @@ bool BackfittingEngine::draw_tree_impl(
         std::vector<InternalStat> old_internals;
         collect_internal_stats(tree, node_idx, old_internals);
 
-        std::vector<RuleOverride> overrides;
-        if (mode == SWAP_LEFT) {
-            const Node& child = tree.node(parent.left);
-            overrides.push_back({
-                node_idx, child.variable, child.split_idx, child.value
-            });
-            overrides.push_back({
-                parent.left, parent.variable, parent.split_idx, parent.value
-            });
-        }
-        else if (mode == SWAP_RIGHT) {
-            const Node& child = tree.node(parent.right);
-            overrides.push_back({
-                node_idx, child.variable, child.split_idx, child.value
-            });
-            overrides.push_back({
-                parent.right, parent.variable, parent.split_idx, parent.value
-            });
-        }
-        else if (mode == SWAP_BOTH) {
-            const Node& left_child = tree.node(parent.left);
-            const Node& right_child = tree.node(parent.right);
-
-            overrides.push_back({
-                node_idx, left_child.variable, left_child.split_idx, left_child.value
-            });
-            overrides.push_back({
-                parent.left, parent.variable, parent.split_idx, parent.value
-            });
-            overrides.push_back({
-                parent.right, parent.variable, parent.split_idx, parent.value
-            });
-        }
-        else {
-            throw std::runtime_error("Unknown swap mode.");
-        }
-
-        auto ws_opt = tree.evaluate_same_shape_workspace(node_idx, overrides);
-        if (!ws_opt.has_value()) return false;
-        const SameShapeWorkspace& ws = *ws_opt;
+        auto proposal_opt = tree.propose_swap(node_idx, mode);
+        if (!proposal_opt.has_value()) return false;
+        const SwapProposalLite& proposal = *proposal_opt;
 
         std::vector<TerminalStat> new_terminals;
-        collect_terminal_stats_workspace(ws, residuals, new_terminals);
+        collect_terminal_stats_workspace(proposal.workspace, residuals, new_terminals);
         std::vector<InternalStat> new_internals;
-        collect_internal_stats_workspace(ws, new_internals);
+        collect_internal_stats_workspace(proposal.workspace, new_internals);
 
-        const double log_lik_ratio = log_likelihood_ratio(
-            new_terminals, old_terminals, sigma2, sigma_mu2
-        );
+        const double log_lik_ratio =
+            log_likelihood_ratio(new_terminals, old_terminals, sigma2, sigma_mu2);
 
-        const double log_prior = log_prior_ratio(
-            new_internals, old_internals
-        );
+        const double log_prior =
+            log_prior_ratio(new_internals, old_internals);
 
         const double mh_ratio = log_lik_ratio + log_prior;
+
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.apply_same_shape_workspace(ws);
+            tree.apply_swap(proposal);
             return true;
         }
         return false;

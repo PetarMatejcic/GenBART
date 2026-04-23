@@ -69,6 +69,25 @@ struct SameShapeWorkspace {
     std::vector<WorkspaceNodeState> states;
 };
 
+struct ChangeProposalLite {
+    int32_t node_idx;
+    int32_t variable;
+    int32_t split_idx;
+    double split_value;
+    SameShapeWorkspace workspace;
+};
+
+static constexpr int SWAP_LEFT = 0;
+static constexpr int SWAP_RIGHT = 1;
+static constexpr int SWAP_BOTH = 2;
+
+struct SwapProposalLite {
+    int32_t node_idx;
+    int mode;
+    std::vector<RuleOverride> overrides;
+    SameShapeWorkspace workspace;
+};
+
 class Tree {
     public:
     Tree(
@@ -111,19 +130,18 @@ class Tree {
     ) const;
     void apply_prune(const PruneProposalLite& proposal);
 
-    void apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt);
-    std::optional<SameShapeWorkspace> evaluate_same_shape_workspace(
-        int32_t root_idx,
-        const std::vector<RuleOverride>& overrides
+    std::optional<ChangeProposalLite> propose_change(
+        int32_t node_idx,
+        int32_t variable,
+        int32_t split_idx
     ) const;
-    void apply_same_shape_workspace(const SameShapeWorkspace& ws);
-    bool build_same_shape_workspace_dfs(
-        int32_t live_idx,
-        const std::vector<std::vector<int32_t>>& rows_by_var,
-        const std::vector<RuleOverride>& overrides,
-        SameShapeWorkspace& ws
+    void apply_change(const ChangeProposalLite& proposal);
+
+    std::optional<SwapProposalLite> propose_swap(
+        int32_t node_idx,
+        int mode
     ) const;
-    void build_workspace_cache(WorkspaceNodeState& ws_node) const;
+    void apply_swap(const SwapProposalLite& proposal);
     
     int32_t count_nodes() const;
     void serialize(
@@ -177,6 +195,20 @@ private:
         const Tree& rebuilt,
         int32_t rebuilt_idx
     );
+
+    void apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt);
+    std::optional<SameShapeWorkspace> evaluate_same_shape_workspace(
+        int32_t root_idx,
+        const std::vector<RuleOverride>& overrides
+    ) const;
+    void apply_same_shape_workspace(const SameShapeWorkspace& ws);
+    bool build_same_shape_workspace_dfs(
+        int32_t live_idx,
+        const std::vector<std::vector<int32_t>>& rows_by_var,
+        const std::vector<RuleOverride>& overrides,
+        SameShapeWorkspace& ws
+    ) const;
+    void build_workspace_cache(WorkspaceNodeState& ws_node) const;
 
     const RuleOverride* find_override(
         const std::vector<RuleOverride>& overrides,
