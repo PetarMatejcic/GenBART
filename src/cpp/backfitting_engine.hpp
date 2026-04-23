@@ -119,14 +119,12 @@ private:
         double sigma2,
         double sigma_mu2
     );
-
     void draw_mu_and_subtract_impl(
         int32_t j,
         DoubleArray residuals,
         double sigma2,
         double sigma_mu2
     );
-
     void apply_tree_to_residuals_impl(
         int32_t j,
         DoubleArray residuals,
@@ -136,8 +134,7 @@ private:
     int sample_move(const std::array<double, 4>& move_distribution);
     int sample_swap_mode(const Tree& tree, int32_t parent_idx);
 
-    std::optional<std::pair<int32_t, int32_t>>
-    sample_uniform_change_rule(const Tree& tree, int32_t node_idx);
+    std::optional<std::pair<int32_t, int32_t>> sample_uniform_change_rule(const Tree& tree, int32_t node_idx);
 
     void collect_terminal_stats(
         const Tree& tree,
@@ -145,7 +142,6 @@ private:
         const DoubleArray& residuals,
         std::vector<TerminalStat>& out
     ) const;
-
     void collect_internal_stats(
         const Tree& tree,
         int32_t node_idx,
@@ -157,7 +153,6 @@ private:
         const DoubleArray& residuals,
         std::vector<TerminalStat>& out
     ) const;
-
     void collect_internal_stats_workspace(
         const SameShapeWorkspace& ws,
         std::vector<InternalStat>& out
