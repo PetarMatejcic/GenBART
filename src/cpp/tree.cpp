@@ -10,15 +10,22 @@
 
 namespace py = pybind11;
 
-Tree::Tree(const double* X,
-           int32_t n,
-           int32_t p,
-           const std::vector<std::vector<int32_t>>& root_rows_by_var)
-    : X_(X), n_(n), p_(p), membership_stamp_(static_cast<size_t>(n), 0), stamp_id_(0), alive_() {
+Tree::Tree(
+    const double* X,
+    int32_t n,
+    int32_t p,
+    const std::vector<std::vector<int32_t>>& root_rows_by_var)
+    :
+    X_(X),
+    n_(n), 
+    p_(p), 
+    membership_stamp_(static_cast<size_t>(n), 0),
+    stamp_id_(0),
+    alive_() {
 
-    if (X_ == nullptr) throw std::runtime_error("X must not be null.");
-    if (n_ <= 0) throw std::runtime_error("n must be positive.");
-    if (p_ <= 0) throw std::runtime_error("p must be positive.");
+    if (X_ == nullptr) { throw std::runtime_error("X must not be null."); }
+    if (n_ <= 0) { throw std::runtime_error("n must be positive."); }
+    if (p_ <= 0) { throw std::runtime_error("p must be positive."); }
     if (static_cast<int32_t>(root_rows_by_var.size()) != p_) {
         throw std::runtime_error("root_rows_by_var must have length p.");
     }
@@ -43,12 +50,12 @@ Tree::Tree(const double* X,
 
 int32_t Tree::make_node(Node&& nd) {
     if (!free_list_.empty()) {
-        int32_t idx = free_list_.back();
+        int32_t reused_idx = free_list_.back();
         free_list_.pop_back();
 
-        nodes_[static_cast<size_t>(idx)] = std::move(nd);
-        alive_[static_cast<size_t>(idx)] = 1;
-        return idx;
+        nodes_[static_cast<size_t>(reused_idx)] = std::move(nd);
+        alive_[static_cast<size_t>(reused_idx)] = 1;
+        return reused_idx;
     }
 
     nodes_.push_back(std::move(nd));
@@ -128,8 +135,10 @@ void Tree::build_workspace_cache(WorkspaceNodeState& ws_node) const {
     }
 }
 
-void Tree::collect_subtree_indices(int32_t root_idx,
-                                   std::vector<int32_t>& out) const {
+void Tree::collect_subtree_indices(
+    int32_t root_idx,
+    std::vector<int32_t>& out
+) const {
     std::vector<int32_t> stack{root_idx};
 
     while (!stack.empty()) {
@@ -162,17 +171,33 @@ void Tree::collect_structure_cache(int32_t idx) const {
 
     const Node& left_child = node(cur.left);
     const Node& right_child = node(cur.right);
-
     if (left_child.is_terminal() && right_child.is_terminal()) {
         prunable_nodes_cache_.push_back(idx);
     }
-
     if (left_child.is_internal() || right_child.is_internal()) {
         swappable_nodes_cache_.push_back(idx);
     }
 
     collect_structure_cache(cur.left);
     collect_structure_cache(cur.right);
+}
+
+int32_t Tree::count_nodes() const {
+    int32_t n = 0;
+    std::vector<int32_t> stack{root_};
+
+    while (!stack.empty()) {
+        int32_t idx = stack.back();
+        stack.pop_back();
+        ++n;
+
+        const Node& cur = node(idx);
+        if (cur.is_internal()) {
+            stack.push_back(cur.right);
+            stack.push_back(cur.left);
+        }
+    }
+    return n;
 }
 
 void Tree::rebuild_structure_cache() const {
@@ -216,27 +241,11 @@ const std::vector<int32_t>& Tree::swappable_nodes() const {
     return swappable_nodes_cache_;
 }
 
-int32_t Tree::count_nodes() const {
-    int32_t n = 0;
-    std::vector<int32_t> stack{root_};
-
-    while (!stack.empty()) {
-        int32_t idx = stack.back();
-        stack.pop_back();
-        ++n;
-
-        const Node& cur = node(idx);
-        if (cur.is_internal()) {
-            stack.push_back(cur.right);
-            stack.push_back(cur.left);
-        }
-    }
-    return n;
-}
-
-double Tree::split_value_at(const std::vector<int32_t>& ord_v,
-                           int32_t variable,
-                           int32_t split_idx) const {
+double Tree::split_value_at(
+    const std::vector<int32_t>& ord_v,
+    int32_t variable,
+    int32_t split_idx
+) const {
     if (ord_v.size() <= 1) {
         throw std::runtime_error("split_value_at called on node with <= 1 row.");
     }
@@ -249,28 +258,27 @@ double Tree::split_value_at(const std::vector<int32_t>& ord_v,
         if (cur != prev) {
             ++seen;
             if (seen == split_idx) {
-                return static_cast<double>(prev);   // not cur
+                return static_cast<double>(prev);
             }
             prev = cur;
         }
     }
-
     throw std::runtime_error("split_idx out of range for split_value_at.");
 }
 
-int32_t Tree::split_pos_of_value(const std::vector<int32_t>& ord_v,
-                                 int32_t variable,
-                                 double value) const {
+int32_t Tree::split_pos_of_value(
+    const std::vector<int32_t>& ord_v,
+    int32_t variable,
+    double value
+) const {
     if (ord_v.empty()) {
         throw std::runtime_error("split_pos_of_value called on empty rows.");
     }
-
     int32_t last = -1;
     for (int32_t i = 0; i < static_cast<int32_t>(ord_v.size()); ++i) {
         double x = X_[static_cast<size_t>(ord_v[static_cast<size_t>(i)]) * p_ + variable];
         if (x == value) last = i;
     }
-
     if (last < 0) {
         throw std::runtime_error("Current split value is not present in node rows.");
     }
@@ -297,6 +305,23 @@ int32_t Tree::split_pos_of_value(const std::vector<int32_t>& ord_v,
     return pos;
 }
 
+bool Tree::value_present_and_splittable(const Node& cur) const {
+    const auto& ord_v = cur.rows_by_var[static_cast<size_t>(cur.variable)];
+    if (ord_v.size() <= 1) { return false; }
+
+    int32_t last = -1;
+    for (int32_t i = 0; i < static_cast<int32_t>(ord_v.size()); ++i) {
+        double x = X_[static_cast<size_t>(ord_v[static_cast<size_t>(i)]) * p_ + cur.variable];
+        if (x == cur.value) last = i;
+    }
+    if (last < 0) { return false; }
+    if (last + 1 >= static_cast<int32_t>(ord_v.size())) { return false; }
+
+    double x_last = X_[static_cast<size_t>(ord_v[static_cast<size_t>(last)]) * p_ + cur.variable];
+    double x_next = X_[static_cast<size_t>(ord_v[static_cast<size_t>(last + 1)]) * p_ + cur.variable];
+    return x_last != x_next;
+}
+
 bool Tree::partition_rows_by_var(
     const std::vector<std::vector<int32_t>>& rows_by_var,
     int32_t variable,
@@ -316,9 +341,7 @@ bool Tree::partition_rows_by_var(
         std::fill(membership_stamp_.begin(), membership_stamp_.end(), 0);
         stamp_id_ = 1;
     }
-
     int32_t left_count = 0;
-
     for (int32_t row : ord_split) {
         const double x = X_[static_cast<size_t>(row) * p_ + variable];
         if (x <= value) {
@@ -330,14 +353,12 @@ bool Tree::partition_rows_by_var(
     if (left_count == 0 || left_count == n_node) {
         return false;
     }
-
     const int32_t right_count = n_node - left_count;
 
     left_by_var.clear();
     right_by_var.clear();
     left_by_var.resize(static_cast<size_t>(p_));
     right_by_var.resize(static_cast<size_t>(p_));
-
     for (int32_t v = 0; v < p_; ++v) {
         const auto& ord_v = rows_by_var[static_cast<size_t>(v)];
         auto& left_v = left_by_var[static_cast<size_t>(v)];
@@ -356,7 +377,6 @@ bool Tree::partition_rows_by_var(
             }
         }
     }
-
     return true;
 }
 
@@ -366,7 +386,6 @@ std::optional<GrowProposalLite> Tree::propose_grow(
     int32_t split_idx
 ) const {
     const Node& old = node(node_idx);
-
     if (old.is_internal()) {
         throw std::runtime_error("Cannot grow an internal node.");
     }
@@ -458,7 +477,6 @@ std::optional<PruneProposalLite> Tree::propose_prune(
 
 void Tree::apply_prune(const PruneProposalLite& proposal) {
     Node& cur = node(proposal.node_idx);
-
     if (cur.is_terminal()) {
         throw std::runtime_error("apply_prune called on terminal node.");
     }
@@ -472,7 +490,6 @@ void Tree::apply_prune(const PruneProposalLite& proposal) {
     cur.left = -1;
     cur.right = -1;
     cur.split_idx = -1;
-
     build_node_cache(cur);
 
     structure_cache_dirty_ = true;
@@ -483,21 +500,39 @@ void Tree::apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuil
     structure_cache_dirty_ = true;
 }
 
-bool Tree::value_present_and_splittable(const Node& cur) const {
-    const auto& ord_v = cur.rows_by_var[static_cast<size_t>(cur.variable)];
-    if (ord_v.size() <= 1) return false;
+void Tree::overwrite_subtree_same_shape(
+    int32_t live_idx,
+    const Tree& rebuilt,
+    int32_t rebuilt_idx
+) {
+    Node& live = node(live_idx);
+    const Node& src = rebuilt.node(rebuilt_idx);
 
-    int32_t last = -1;
-    for (int32_t i = 0; i < static_cast<int32_t>(ord_v.size()); ++i) {
-        double x = X_[static_cast<size_t>(ord_v[static_cast<size_t>(i)]) * p_ + cur.variable];
-        if (x == cur.value) last = i;
+    const bool live_terminal = live.is_terminal();
+    const bool src_terminal = src.is_terminal();
+
+    if (live_terminal != src_terminal) {
+        throw std::runtime_error("overwrite_subtree_same_shape: subtree shapes do not match.");
     }
-    if (last < 0) return false;
-    if (last + 1 >= static_cast<int32_t>(ord_v.size())) return false;
 
-    double x_last = X_[static_cast<size_t>(ord_v[static_cast<size_t>(last)]) * p_ + cur.variable];
-    double x_next = X_[static_cast<size_t>(ord_v[static_cast<size_t>(last + 1)]) * p_ + cur.variable];
-    return x_last != x_next;
+    // Copy state fields only. Do NOT copy parent/left/right indices.
+    live.variable = src.variable;
+    live.value = src.value;
+    live.mu = src.mu;
+    live.split_idx = src.split_idx;
+    live.rows = src.rows;
+    live.rows_by_var = src.rows_by_var;
+    live.valid_vars = src.valid_vars;
+    live.eta_by_var = src.eta_by_var;
+
+    if (src_terminal) {
+        // Topology is already correct in the live tree.
+        // These should already be -1 for a terminal node if shapes match.
+        return;
+    }
+
+    overwrite_subtree_same_shape(live.left, rebuilt, src.left);
+    overwrite_subtree_same_shape(live.right, rebuilt, src.right);
 }
 
 void Tree::retire_subtree(int32_t root_idx) {
@@ -563,6 +598,74 @@ void Tree::apply_same_shape_workspace(const SameShapeWorkspace& ws) {
     structure_cache_dirty_ = true;
 }
 
+bool Tree::build_same_shape_workspace_dfs(
+    int32_t live_idx,
+    const std::vector<std::vector<int32_t>>& rows_by_var,
+    const std::vector<RuleOverride>& overrides,
+    SameShapeWorkspace& ws
+) const {
+    const Node& live = node(live_idx);
+
+    WorkspaceNodeState cur;
+    cur.live_idx = live_idx;
+    cur.rows_by_var = rows_by_var;
+    cur.rows = cur.rows_by_var[0];
+
+    if (live.is_terminal()) {
+        cur.variable = -1;
+        cur.split_idx = -1;
+        cur.value = 0.0;
+        build_workspace_cache(cur);
+        ws.states.push_back(std::move(cur));
+        return true;
+    }
+    build_workspace_cache(cur);
+
+    const RuleOverride* ov = find_override(overrides, live_idx);
+    const int32_t variable = ov ? ov->variable : live.variable;
+    const int32_t split_idx = ov ? ov->split_idx : live.split_idx;
+    const double split_value = ov ? ov->split_value : live.value;
+
+    const int32_t eta = cur.eta_by_var.at(static_cast<size_t>(variable));
+    if (eta <= 0 || split_idx < 0 || split_idx >= eta) {
+        return false;
+    }
+
+    cur.variable = variable;
+    cur.split_idx = split_idx;
+    cur.value = split_value;
+    ws.states.push_back(cur);
+
+    std::vector<std::vector<int32_t>> left_by_var, right_by_var;
+    if (!partition_rows_by_var(
+            rows_by_var,
+            variable,
+            split_value,
+            left_by_var,
+            right_by_var)) {
+        return false;
+    }
+
+    if (!build_same_shape_workspace_dfs(live.left, left_by_var, overrides, ws)) {
+        return false;
+    }
+    if (!build_same_shape_workspace_dfs(live.right, right_by_var, overrides, ws)) {
+        return false;
+    }
+
+    return true;
+}
+
+const RuleOverride* Tree::find_override(
+    const std::vector<RuleOverride>& overrides,
+    int32_t node_idx
+) const {
+    for (const auto& ov : overrides) {
+        if (ov.node_idx == node_idx) return &ov;
+    }
+    return nullptr;
+}
+
 void Tree::serialize(std::vector<int32_t>& variable,
                      std::vector<double>& value,
                      std::vector<int32_t>& left,
@@ -609,111 +712,6 @@ void Tree::serialize(std::vector<int32_t>& variable,
             stack.push_back({cur.left, ser_idx, false});
         }
     }
-}
-
-void Tree::overwrite_subtree_same_shape(
-    int32_t live_idx,
-    const Tree& rebuilt,
-    int32_t rebuilt_idx
-) {
-    Node& live = node(live_idx);
-    const Node& src = rebuilt.node(rebuilt_idx);
-
-    const bool live_terminal = live.is_terminal();
-    const bool src_terminal = src.is_terminal();
-
-    if (live_terminal != src_terminal) {
-        throw std::runtime_error("overwrite_subtree_same_shape: subtree shapes do not match.");
-    }
-
-    // Copy state fields only. Do NOT copy parent/left/right indices.
-    live.variable = src.variable;
-    live.value = src.value;
-    live.mu = src.mu;
-    live.split_idx = src.split_idx;
-    live.rows = src.rows;
-    live.rows_by_var = src.rows_by_var;
-    live.valid_vars = src.valid_vars;
-    live.eta_by_var = src.eta_by_var;
-
-    if (src_terminal) {
-        // Topology is already correct in the live tree.
-        // These should already be -1 for a terminal node if shapes match.
-        return;
-    }
-
-    overwrite_subtree_same_shape(live.left, rebuilt, src.left);
-    overwrite_subtree_same_shape(live.right, rebuilt, src.right);
-}
-
-bool Tree::build_same_shape_workspace_dfs(
-    int32_t live_idx,
-    const std::vector<std::vector<int32_t>>& rows_by_var,
-    const std::vector<RuleOverride>& overrides,
-    SameShapeWorkspace& ws
-) const {
-    const Node& live = node(live_idx);
-
-    WorkspaceNodeState cur;
-    cur.live_idx = live_idx;
-    cur.rows_by_var = rows_by_var;
-    cur.rows = cur.rows_by_var[0];
-
-    if (live.is_terminal()) {
-        cur.variable = -1;
-        cur.split_idx = -1;
-        cur.value = 0.0;
-        build_workspace_cache(cur);
-        ws.states.push_back(std::move(cur));
-        return true;
-    }
-
-    build_workspace_cache(cur);
-
-    const RuleOverride* ov = find_override(overrides, live_idx);
-    const int32_t variable = ov ? ov->variable : live.variable;
-    const int32_t split_idx = ov ? ov->split_idx : live.split_idx;
-    const double split_value = ov ? ov->split_value : live.value;
-
-    const int32_t eta = cur.eta_by_var.at(static_cast<size_t>(variable));
-    if (eta <= 0 || split_idx < 0 || split_idx >= eta) {
-        return false;
-    }
-
-    cur.variable = variable;
-    cur.split_idx = split_idx;
-    cur.value = split_value;
-
-    ws.states.push_back(cur);
-
-    std::vector<std::vector<int32_t>> left_by_var, right_by_var;
-    if (!partition_rows_by_var(
-            rows_by_var,
-            variable,
-            split_value,
-            left_by_var,
-            right_by_var)) {
-        return false;
-    }
-
-    if (!build_same_shape_workspace_dfs(live.left, left_by_var, overrides, ws)) {
-        return false;
-    }
-    if (!build_same_shape_workspace_dfs(live.right, right_by_var, overrides, ws)) {
-        return false;
-    }
-
-    return true;
-}
-
-const RuleOverride* Tree::find_override(
-    const std::vector<RuleOverride>& overrides,
-    int32_t node_idx
-) const {
-    for (const auto& ov : overrides) {
-        if (ov.node_idx == node_idx) return &ov;
-    }
-    return nullptr;
 }
 
 void Tree::validate() const {
@@ -826,30 +824,36 @@ void bind_tree(py::module_& m) {
 
                 return Tree(X_ptr, n, p, root_rows_by_var);
             }),
+            "Create a tree with a single root node from a 2D feature matrix.",
             py::arg("X")
         )
-        .def("root", &Tree::root)
+        .def("root", &Tree::root,
+            "Return the index of the root node.")
         .def("terminal_nodes",
             [](const Tree& t, bool growable) {
                 const auto& v = t.terminal_nodes(growable);
                 return std::vector<int32_t>(v.begin(), v.end());
             },
+            "Return terminal node indices. If growable is true, return only leaves with valid splits.",
             py::arg("growable") = true)
         .def("internal_nodes",
             [](const Tree& t) {
                 const auto& v = t.internal_nodes();
                 return std::vector<int32_t>(v.begin(), v.end());
-            })
+            },
+            "Return indices of all internal nodes.")
         .def("prunable_nodes",
             [](const Tree& t) {
                 const auto& v = t.prunable_nodes();
                 return std::vector<int32_t>(v.begin(), v.end());
-            })
+            },
+            "Return internal nodes whose children are both terminal.")
         .def("swappable_nodes",
             [](const Tree& t) {
                 const auto& v = t.swappable_nodes();
                 return std::vector<int32_t>(v.begin(), v.end());
-            })
+            },
+            "Return internal nodes eligible for a swap move.")
         .def("serialize",
             [](const Tree& t) {
                 std::vector<int32_t> variable, left, right;
@@ -880,11 +884,14 @@ void bind_tree(py::module_& m) {
                     std::move(right_arr),
                     std::move(mu_arr)
                 );
-            }
-        )
-        .def("validate", &Tree::validate)
+            },
+            "Serialize the tree into flat node arrays for variable, value, children, and leaf means.")
+        .def("validate", &Tree::validate,
+            "Check tree structure and cached state for consistency.")
         .def("propose_grow", &Tree::propose_grow,
+            "Build a grow proposal for a terminal node using the given split rule.",
              py::arg("node_idx"), py::arg("variable"), py::arg("split_idx"))
         .def("propose_prune", &Tree::propose_prune,
+            "Build a prune proposal that collapses an internal node into a leaf.",
              py::arg("node_idx"), py::arg("mu") = 0.0f);
 }
