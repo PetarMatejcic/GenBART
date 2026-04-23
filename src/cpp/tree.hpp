@@ -31,53 +31,108 @@ struct Node {
     bool is_internal() const noexcept { return left != -1; }
 };
 
-struct ProposalSubtree;
+struct GrowProposalLite {
+    int32_t node_idx;
+    int32_t variable;
+    int32_t split_idx;
+    double split_value;
+    std::vector<std::vector<int32_t>> left_by_var;
+    std::vector<std::vector<int32_t>> right_by_var;
+};
+
+struct PruneProposalLite {
+    int32_t node_idx;
+    double mu;
+};
+
+struct RuleOverride {
+    int32_t node_idx;
+    int32_t variable;
+    int32_t split_idx;
+    double split_value;
+};
+
+struct WorkspaceNodeState {
+    int32_t live_idx;
+    int32_t variable;
+    int32_t split_idx;
+    double value;
+
+    std::vector<std::vector<int32_t>> rows_by_var;
+    std::vector<int32_t> rows;
+    std::vector<int32_t> valid_vars;
+    std::vector<int32_t> eta_by_var;
+};
+
+struct SameShapeWorkspace {
+    int32_t root_idx;
+    std::vector<WorkspaceNodeState> states;
+};
 
 class Tree {
-public:
-    Tree(const double* X,
-         int32_t n,
-         int32_t p,
-         const std::vector<std::vector<int32_t>>& root_rows_by_var);
-
-         Node& node(int32_t idx);
-         const Node& node(int32_t idx) const;
+    public:
+    Tree(
+        const double* X,
+        int32_t n,
+        int32_t p,
+        const std::vector<std::vector<int32_t>>& root_rows_by_var
+    );
 
     int32_t root() const noexcept { return root_; }
+    Node& node(int32_t idx);
+    const Node& node(int32_t idx) const;
 
-    std::vector<int32_t> terminal_nodes(bool growable = true) const;
-    std::vector<int32_t> internal_nodes() const;
-    std::vector<int32_t> prunable_nodes() const;
-    std::vector<int32_t> swappable_nodes() const;
+    const std::vector<int32_t>& terminal_nodes(bool growable) const;
+    const std::vector<int32_t>& internal_nodes() const;
+    const std::vector<int32_t>& prunable_nodes() const;
+    const std::vector<int32_t>& swappable_nodes() const;
+    
+    double split_value_at(
+        const std::vector<int32_t>& ord_v,
+        int32_t variable,
+        int32_t split_idx
+    ) const;
+    int32_t split_pos_of_value(
+        const std::vector<int32_t>& ord_v,
+        int32_t variable,
+        double value
+    ) const;
 
+    std::optional<GrowProposalLite> propose_grow(
+        int32_t node_idx,
+        int32_t variable,
+        int32_t split_idx
+    ) const;
+    void apply_grow(const GrowProposalLite& proposal);
+
+    std::optional<PruneProposalLite> propose_prune(
+        int32_t node_idx,
+        double mu = 0.0f
+    ) const;
+    void apply_prune(const PruneProposalLite& proposal);
+
+    void apply_rebuilt_subtree_same_shape(int32_t node_idx, const Tree& rebuilt);
+    std::optional<SameShapeWorkspace> evaluate_same_shape_workspace(
+        int32_t root_idx,
+        const std::vector<RuleOverride>& overrides
+    ) const;
+    void apply_same_shape_workspace(const SameShapeWorkspace& ws);
+    bool build_same_shape_workspace_dfs(
+        int32_t live_idx,
+        const std::vector<std::vector<int32_t>>& rows_by_var,
+        const std::vector<RuleOverride>& overrides,
+        SameShapeWorkspace& ws
+    ) const;
+    void build_workspace_cache(WorkspaceNodeState& ws_node) const;
+    
     int32_t count_nodes() const;
-
-    double split_value_at(const std::vector<int32_t>& ord_v,
-                         int32_t variable,
-                         int32_t split_idx) const;
-
-    int32_t split_pos_of_value(const std::vector<int32_t>& ord_v,
-                               int32_t variable,
-                               double value) const;
-
-    std::optional<ProposalSubtree> propose_grow(int32_t node_idx,
-                                                int32_t variable,
-                                                int32_t split_idx) const;
-    std::optional<ProposalSubtree> propose_prune(int32_t node_idx,
-                                                double mu = 0.0f) const;
-    std::optional<ProposalSubtree> propose_change(int32_t node_idx,
-                                                int32_t variable,
-                                                int32_t split_idx) const;
-    std::optional<ProposalSubtree> propose_swap(int32_t node_idx,
-                                                int mode) const;   // 0=left, 1=right, 2=both
-
-    int32_t replace_subtree(int32_t node_idx, const Tree& replacement);
-
-    void serialize(std::vector<int32_t>& variable,
-                   std::vector<double>& value,
-                   std::vector<int32_t>& left,
-                   std::vector<int32_t>& right,
-                   std::vector<double>& mu) const;
+    void serialize(
+        std::vector<int32_t>& variable,
+        std::vector<double>& value,
+        std::vector<int32_t>& left,
+        std::vector<int32_t>& right,
+        std::vector<double>& mu
+    ) const;
 
     void validate() const;
 
@@ -90,46 +145,44 @@ private:
     std::vector<Node> nodes_;
     std::vector<int32_t> free_list_;
     std::vector<uint8_t> alive_;
-    std::vector<int32_t> membership_stamp_;
-    int32_t stamp_id_ = 0;
+    mutable std::vector<int32_t> membership_stamp_;
+    mutable int32_t stamp_id_ = 0;
+
+    mutable bool structure_cache_dirty_ = true;
+
+    mutable std::vector<int32_t> terminal_nodes_all_cache_;
+    mutable std::vector<int32_t> terminal_nodes_growable_cache_;
+    mutable std::vector<int32_t> internal_nodes_cache_;
+    mutable std::vector<int32_t> prunable_nodes_cache_;
+    mutable std::vector<int32_t> swappable_nodes_cache_;
 
     int32_t make_node(Node&& node);
 
     void build_node_cache(Node& node);
+    void rebuild_structure_cache() const;
+    void collect_structure_cache(int32_t idx) const;
 
-    bool partition_rows_by_var(const std::vector<std::vector<int32_t>>& rows_by_var,
-                               int32_t variable,
-                               double value,
-                               std::vector<std::vector<int32_t>>& left_by_var,
-                               std::vector<std::vector<int32_t>>& right_by_var);
+    bool partition_rows_by_var(
+        const std::vector<std::vector<int32_t>>& rows_by_var,
+        int32_t variable,
+        const double value,
+        std::vector<std::vector<int32_t>>& left_by_var,
+        std::vector<std::vector<int32_t>>& right_by_var
+    ) const;
     
     void collect_subtree_indices(int32_t root_idx, std::vector<int32_t>& out) const;
-
-    void collect_terminal_nodes(int32_t idx,
-                                bool growable,
-                                std::vector<int32_t>& out) const;
-    void collect_internal_nodes(int32_t idx,
-                                std::vector<int32_t>& out) const;
-    void collect_prunable_nodes(int32_t idx,
-                                std::vector<int32_t>& out) const;
-    void collect_swappable_nodes(int32_t idx,
-                                 std::vector<int32_t>& out) const;
-
-    bool value_present_and_splittable(const Node& node) const;
-
-    Tree copy_subtree(int32_t node_idx) const;
-
     void retire_subtree(int32_t root_idx);
+    void overwrite_subtree_same_shape(
+        int32_t live_idx,
+        const Tree& rebuilt,
+        int32_t rebuilt_idx
+    );
 
-    bool update_subtree_from_root(int32_t node_idx,
-                                std::vector<std::vector<int32_t>>* terminals,
-                                std::vector<int32_t>* internals);
-};
-
-struct ProposalSubtree {
-    Tree subtree;
-    std::vector<std::vector<int32_t>> terminals;
-    std::vector<int32_t> internals;
+    const RuleOverride* find_override(
+        const std::vector<RuleOverride>& overrides,
+        int32_t node_idx
+    ) const;
+    bool value_present_and_splittable(const Node& node) const;
 };
 
 void bind_tree(py::module_& m);

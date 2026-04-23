@@ -33,6 +33,8 @@ class ProbitBart(BaseBART):
             raise ValueError
         self.y_obs = np.asarray(y)
         self.n, self.p = self.X.shape
+        z = truncnorm(a=0, b=np.inf).rvs(self.n)
+        self.y_work = np.where(self.y_obs == 1, z, -z)
 
         self._init_trees()
         self._init_common_arrays()
@@ -42,28 +44,21 @@ class ProbitBart(BaseBART):
         self.sigma2 = 1.0
         self.sigma_mu2 = (3.0 / (self.k * np.sqrt(self.m))) ** 2
 
-        z = truncnorm(a=0, b=np.inf).rvs(self.n)
-        self.y_work = np.where(self.y_obs == 1, z, -z)
 
         for _ in range(self.n_burn):
             self._one_mcmc_iteration()
-
+            
         for _ in range(self.n_samples):
             self._one_mcmc_iteration()
             
-            variable_counts = np.zeros(self.p, dtype=np.int64)
-            variable_total = 0
+            variable, value, left, right, mu, tree_offset = self._serialize_forest()
+            self._append_serialized_forest_block(variable, value, left, right, mu, tree_offset)
 
-            for j in range(self.m):
-                st = self._serialize_tree(j)
-                self._append_serialized_tree(st)
-
-                mask = st.variable >= 0
-                if np.any(mask):
-                    variable_counts += np.bincount(st.variable[mask], minlength=self.p)
-                    variable_total += int(mask.sum())
-
-            self._vi_sum += variable_counts / variable_total
+            mask = variable >= 0
+            if np.any(mask):
+                variable_counts = np.bincount(variable[mask], minlength=self.p)
+                variable_total = int(mask.sum())
+                self._vi_sum += variable_counts / variable_total
         self._finalize_packed_forest()
         return self
     
@@ -94,32 +89,31 @@ class ProbitBart(BaseBART):
     def predict(self, X, threshold: float = 0.5):
         probs = self.predict_probs(X)[0]
         return probs >= threshold
-    
+        
     def _one_mcmc_iteration(self):
+        old_z = self.y_work.copy()
         self._draw_latent_z()
-        for j in range(self.m):
-            self._partial_residuals(j)
-            self._draw_tree(j)
-            self._draw_mu(j)
-            self._update_tps_and_fitted_sums_incremental(j)
+        self.residuals += self.y_work - old_z
+        self._backfitting_sweep()
 
     def _draw_latent_z(self):
         pos = self.y_obs == 1
         neg = ~pos
+        fitted_sums = self.y_work - self.residuals
 
-        a_pos = -self.fitted_sums[pos]
+        a_pos = -fitted_sums[pos]
         b_pos = np.full(a_pos.shape, np.inf)
         self.y_work[pos] = truncnorm.rvs(a=a_pos,
                                 b=b_pos,
-                                loc=self.fitted_sums[pos],
+                                loc=fitted_sums[pos],
                                 scale=1.0,
                                 random_state=self.rng,)
 
         a_neg = np.full(np.sum(neg), -np.inf)
-        b_neg = -self.fitted_sums[neg]
+        b_neg = -fitted_sums[neg]
         self.y_work[neg] = truncnorm.rvs(a=a_neg,
                                 b=b_neg,
-                                loc=self.fitted_sums[neg],
+                                loc=fitted_sums[neg],
                                 scale=1.0,
                                 random_state=self.rng,)
         

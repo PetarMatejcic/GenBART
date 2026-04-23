@@ -7,14 +7,17 @@
 #include <numeric>
 #include <stdexcept>
 
-BackfittingEngine::BackfittingEngine(DoubleArray X_in, int32_t m, uint64_t seed):
+BackfittingEngine::BackfittingEngine(
+    DoubleArray X_in,
+    int32_t m,
+    uint64_t seed):
     X_owner_(std::move(X_in)),
     X_(nullptr),
     n_(0),
     p_(0),
     m_(m),
-    rng_(seed) {
-
+    rng_(seed)
+{
     if (m_ <= 0) {
         throw std::runtime_error("m must be positive.");
     }
@@ -29,7 +32,6 @@ BackfittingEngine::BackfittingEngine(DoubleArray X_in, int32_t m, uint64_t seed)
     if (n_ <= 0 || p_ <= 0) {
         throw std::runtime_error("X must have positive shape.");
     }
-
     X_ = static_cast<const double*>(buf.ptr);
     if (X_ == nullptr) {
         throw std::runtime_error("X data pointer is null.");
@@ -68,6 +70,44 @@ void BackfittingEngine::initialize_root_forest() {
     }
 }
 
+void BackfittingEngine::backfitting_sweep(
+    DoubleArray residuals,
+    double sigma2,
+    double sigma_mu2,
+    double alpha,
+    double beta,
+    const std::array<double, 4>& move_distribution
+) {
+    validate_residuals_array(residuals);
+
+    py::gil_scoped_release release;
+    for (int32_t j = 0; j < m_; ++j) {
+        apply_tree_to_residuals_impl(j, residuals, +1.0);
+        draw_tree_impl(j, residuals, sigma2, sigma_mu2, alpha, beta, move_distribution);
+        draw_mu_and_subtract_impl(j, residuals, sigma2, sigma_mu2);
+    }
+}
+
+void BackfittingEngine::apply_tree_to_residuals_impl(
+    int32_t j,
+    DoubleArray residuals,
+    double sign
+) {
+    auto r = residuals.mutable_unchecked<1>();
+
+    const Tree& tree = forest_[static_cast<size_t>(j)];
+    const auto& terminals = tree.terminal_nodes(false);
+
+    for (int32_t node_idx : terminals) {
+        const Node& node = tree.node(node_idx);
+        const double delta = sign * static_cast<double>(node.mu);
+
+        for (int32_t row : node.rows) {
+            r(row) += delta;
+        }
+    }
+}
+
 void BackfittingEngine::check_tree_index(int32_t j) const {
     if (j < 0 || j >= m_) {
         throw std::runtime_error("Tree index out of bounds.");
@@ -80,26 +120,6 @@ void BackfittingEngine::validate_residuals_array(const DoubleArray& residuals) c
     }
     if (static_cast<int32_t>(residuals.shape(0)) != n_) {
         throw std::runtime_error("residuals has wrong length.");
-    }
-}
-
-void BackfittingEngine::validate_training_state_arrays(
-    const DoubleArray& training_predictions,
-    const DoubleArray& fitted_sums
-) const {
-    if (training_predictions.ndim() != 2) {
-        throw std::runtime_error("training_predictions must be a 2D array.");
-    }
-    if (static_cast<int32_t>(training_predictions.shape(0)) != m_ ||
-        static_cast<int32_t>(training_predictions.shape(1)) != n_) {
-        throw std::runtime_error("training_predictions has wrong shape.");
-    }
-
-    if (fitted_sums.ndim() != 1) {
-        throw std::runtime_error("fitted_sums must be a 1D array.");
-    }
-    if (static_cast<int32_t>(fitted_sums.shape(0)) != n_) {
-        throw std::runtime_error("fitted_sums has wrong length.");
     }
 }
 
@@ -138,6 +158,7 @@ int BackfittingEngine::sample_swap_mode(const Tree& tree, int32_t parent_idx) {
     if (!left_internal) {
         return SWAP_RIGHT;
     }
+
     if (!right_internal) {
         return SWAP_LEFT;
     }
@@ -145,7 +166,6 @@ int BackfittingEngine::sample_swap_mode(const Tree& tree, int32_t parent_idx) {
     const bool same_rule =
         (left_child.variable == right_child.variable) &&
         (left_child.value == right_child.value);
-
     if (same_rule) {
         return SWAP_BOTH;
     }
@@ -154,26 +174,26 @@ int BackfittingEngine::sample_swap_mode(const Tree& tree, int32_t parent_idx) {
     return dist(rng_) == 0 ? SWAP_LEFT : SWAP_RIGHT;
 }
 
-std::optional<std::pair<int32_t, int32_t>> BackfittingEngine::sample_uniform_change_rule(const Tree& tree, int32_t node_idx) {
+std::optional<std::pair<int32_t, int32_t>> BackfittingEngine::sample_uniform_change_rule(
+    const Tree& tree,
+    int32_t node_idx) {
     const Node& node = tree.node(node_idx);
     const auto& vars = node.valid_vars;
 
-    if (vars.empty()) return std::nullopt;
+    if (vars.empty()) { return std::nullopt; }
 
     std::vector<int32_t> counts;
     counts.reserve(vars.size());
-
     int64_t total_rules = 0;
     for (int32_t var : vars) {
         const int32_t eta = node.eta_by_var.at(static_cast<size_t>(var));
         counts.push_back(eta);
         total_rules += eta;
     }
-
     if (total_rules <= 1) return std::nullopt;
 
     auto it = std::find(vars.begin(), vars.end(), node.variable);
-    if (it == vars.end()) throw std::runtime_error("Current split variable is not in valid_vars.");
+    if (it == vars.end()) { throw std::runtime_error("Current split variable is not in valid_vars."); }
 
     const int32_t cur_var_pos = static_cast<int32_t>(std::distance(vars.begin(), it));
     const int32_t cur_split_pos = tree.split_pos_of_value(
@@ -181,7 +201,6 @@ std::optional<std::pair<int32_t, int32_t>> BackfittingEngine::sample_uniform_cha
         node.variable,
         node.value
     );
-
     int64_t cur_global = cur_split_pos;
     for (int32_t i = 0; i < cur_var_pos; ++i) {
         cur_global += counts[static_cast<size_t>(i)];
@@ -204,26 +223,85 @@ std::optional<std::pair<int32_t, int32_t>> BackfittingEngine::sample_uniform_cha
     throw std::runtime_error("Failed to sample change rule.");
 }
 
-void BackfittingEngine::collect_terminal_rows(const Tree& tree, int32_t node_idx, std::vector<std::vector<int32_t>>& out) const {
+void BackfittingEngine::collect_terminal_stats(
+    const Tree& tree,
+    int32_t node_idx,
+    const DoubleArray& residuals,
+    std::vector<TerminalStat>& out
+) const {
+    const auto r = residuals.unchecked<1>();
     const Node& node = tree.node(node_idx);
 
     if (node.is_terminal()) {
-        out.push_back(node.rows);
+        double sum_r = 0.0;
+        for (int32_t row : node.rows) {
+            sum_r += r(row);
+        }
+        out.push_back(TerminalStat{
+            static_cast<int32_t>(node.rows.size()),
+            sum_r
+        });
         return;
     }
 
-    collect_terminal_rows(tree, node.left, out);
-    collect_terminal_rows(tree, node.right, out);
+    collect_terminal_stats(tree, node.left, residuals, out);
+    collect_terminal_stats(tree, node.right, residuals, out);
 }
 
-void BackfittingEngine::collect_internal_nodes(const Tree& tree, int32_t node_idx, std::vector<int32_t>& out) const {
+void BackfittingEngine::collect_terminal_stats_workspace(
+    const SameShapeWorkspace& ws,
+    const DoubleArray& residuals,
+    std::vector<TerminalStat>& out
+) const {
+    const auto r = residuals.unchecked<1>();
+
+    for (const auto& nd : ws.states) {
+        if (nd.variable != -1) continue;
+
+        double sum_r = 0.0;
+        for (int32_t row : nd.rows) {
+            sum_r += r(row);
+        }
+
+        out.push_back(TerminalStat{
+            static_cast<int32_t>(nd.rows.size()),
+            sum_r
+        });
+    }
+}
+
+void BackfittingEngine::collect_internal_stats(
+    const Tree& tree,
+    int32_t node_idx,
+    std::vector<InternalStat>& out
+) const {
     const Node& node = tree.node(node_idx);
 
-    if (node.is_terminal()) return;
+    if (node.is_terminal()) {
+        return;
+    }
 
-    out.push_back(node_idx);
-    collect_internal_nodes(tree, node.left, out);
-    collect_internal_nodes(tree, node.right, out);
+    out.push_back(InternalStat{
+        static_cast<int32_t>(node.valid_vars.size()),
+        node.eta_by_var.at(static_cast<size_t>(node.variable))
+    });
+
+    collect_internal_stats(tree, node.left, out);
+    collect_internal_stats(tree, node.right, out);
+}
+
+void BackfittingEngine::collect_internal_stats_workspace(
+    const SameShapeWorkspace& ws,
+    std::vector<InternalStat>& out
+) const {
+    for (const auto& nd : ws.states) {
+        if (nd.variable == -1) continue;
+
+        out.push_back(InternalStat{
+            static_cast<int32_t>(nd.valid_vars.size()),
+            nd.eta_by_var.at(static_cast<size_t>(nd.variable))
+        });
+    }
 }
 
 double BackfittingEngine::p_split(int32_t depth, double alpha, double beta) const {
@@ -231,61 +309,44 @@ double BackfittingEngine::p_split(int32_t depth, double alpha, double beta) cons
 }
 
 double BackfittingEngine::log_likelihood_ratio(
-    const DoubleArray& residuals,
-    const std::vector<std::vector<int32_t>>& new_terminals,
-    const std::vector<std::vector<int32_t>>& old_terminals,
+    const std::vector<TerminalStat>& new_terminals,
+    const std::vector<TerminalStat>& old_terminals,
     double sigma2,
     double sigma_mu2
 ) const {
-    const auto r = residuals.unchecked<1>();
-
-    auto contribution = [&](const std::vector<int32_t>& rows) -> double {
-        double sum_r = 0.0;
-        for (int32_t row : rows) {
-            sum_r += r(row);
-        }
-
-        const double denom = sigma2 + static_cast<double>(rows.size()) * sigma_mu2;
-        const double sse = sum_r * sum_r;
+    auto contribution = [&](const TerminalStat& s) -> double {
+        const double denom = sigma2 + static_cast<double>(s.n) * sigma_mu2;
+        const double sse = s.sum_r * s.sum_r;
 
         return 0.5 * std::log(sigma2 / denom)
              + (sigma_mu2 * sse) / (2.0 * sigma2 * denom);
     };
 
     double ratio = 0.0;
-    for (const auto& rows : new_terminals) {
-        ratio += contribution(rows);
+    for (const auto& s : new_terminals) {
+        ratio += contribution(s);
     }
-    for (const auto& rows : old_terminals) {
-        ratio -= contribution(rows);
+    for (const auto& s : old_terminals) {
+        ratio -= contribution(s);
     }
-
     return ratio;
 }
 
-double BackfittingEngine::log_tree_prior_for_internal(const Tree& tree, int32_t node_idx) const {
-    const Node& node = tree.node(node_idx);
-
-    if (node.is_terminal()) throw std::runtime_error("log_tree_prior_for_internal called on a terminal node.");
-
-    const double b = static_cast<double>(node.valid_vars.size());
-    const double eta = static_cast<double>(node.eta_by_var.at(static_cast<size_t>(node.variable)));
-
-    return -std::log(b) - std::log(eta);
-}
-
 double BackfittingEngine::log_prior_ratio(
-    const Tree& proposed_tree,
-    const std::vector<int32_t>& proposed_internals,
-    const Tree& live_tree,
-    const std::vector<int32_t>& old_internals
+    const std::vector<InternalStat>& new_internals,
+    const std::vector<InternalStat>& old_internals
 ) const {
+    auto contribution = [](const InternalStat& s) -> double {
+        return -std::log(static_cast<double>(s.b))
+               -std::log(static_cast<double>(s.eta));
+    };
+
     double ratio = 0.0;
-    for (int32_t idx : proposed_internals) {
-        ratio += log_tree_prior_for_internal(proposed_tree, idx);
+    for (const auto& s : new_internals) {
+        ratio += contribution(s);
     }
-    for (int32_t idx : old_internals) {
-        ratio -= log_tree_prior_for_internal(live_tree, idx);
+    for (const auto& s : old_internals) {
+        ratio -= contribution(s);
     }
     return ratio;
 }
@@ -298,10 +359,18 @@ void BackfittingEngine::draw_mu(
 ) {
     check_tree_index(j);
     validate_residuals_array(residuals);
+    draw_mu_impl(j, residuals, sigma2, sigma_mu2);
+}
 
+void BackfittingEngine::draw_mu_impl(
+    int32_t j,
+    const DoubleArray& residuals,
+    double sigma2,
+    double sigma_mu2
+) {
     auto r = residuals.unchecked<1>();
     Tree& tree = forest_[static_cast<size_t>(j)];
-    const auto terminals = tree.terminal_nodes(false);
+    const auto& terminals = tree.terminal_nodes(false);
 
     for (int32_t node_idx : terminals) {
         Node& node = tree.node(node_idx);
@@ -320,39 +389,38 @@ void BackfittingEngine::draw_mu(
     }
 }
 
-void BackfittingEngine::refresh_tree_training_predictions(
+void BackfittingEngine::draw_mu_and_subtract_impl(
     int32_t j,
-    DoubleArray training_predictions,
-    DoubleArray fitted_sums
+    DoubleArray residuals,
+    double sigma2,
+    double sigma_mu2
 ) {
-    check_tree_index(j);
-    validate_training_state_arrays(training_predictions, fitted_sums);
-
-    auto tp = training_predictions.mutable_unchecked<2>();
-    auto fs = fitted_sums.mutable_unchecked<1>();
-
-    for (int32_t i = 0; i < n_; ++i) {
-        fs(i) -= tp(j, i);
-    }
-
-    for (int32_t i = 0; i < n_; ++i) {
-        tp(j, i) = 0.0;
-    }
-
-    const Tree& tree = forest_[static_cast<size_t>(j)];
-    const auto terminals = tree.terminal_nodes(false);
+    auto r = residuals.mutable_unchecked<1>();
+    Tree& tree = forest_[static_cast<size_t>(j)];
+    const auto& terminals = tree.terminal_nodes(false);
 
     for (int32_t node_idx : terminals) {
-        const Node& node = tree.node(node_idx);
-        const double mu = static_cast<double>(node.mu);
+        Node& node = tree.node(node_idx);
+        const auto& rows = node.rows;
 
-        for (int32_t row : node.rows) {
-            tp(j, row) = mu;
+        double sum_r = 0.0;
+        for (int32_t row : rows) {
+            sum_r += r(row);
         }
-    }
 
-    for (int32_t i = 0; i < n_; ++i) {
-        fs(i) += tp(j, i);
+        const double n_leaf = static_cast<double>(rows.size());
+        const double denom = n_leaf * sigma_mu2 + sigma2;
+        const double mean = (sigma_mu2 * sum_r) / denom;
+        const double var = (sigma2 * sigma_mu2) / denom;
+
+        std::normal_distribution<double> dist(mean, std::sqrt(var));
+        const double new_mu = static_cast<double>(dist(rng_));
+
+        node.mu = new_mu;
+
+        for (int32_t row : rows) {
+            r(row) -= new_mu;
+        }
     }
 }
 
@@ -385,6 +453,67 @@ py::tuple BackfittingEngine::serialize_tree(int32_t j) const {
     );
 }
 
+py::tuple BackfittingEngine::serialize_forest() const {
+    std::vector<int32_t> variable_all, left_all, right_all;
+    std::vector<double> value_all, mu_all;
+    std::vector<int64_t> tree_offset;
+    tree_offset.reserve(static_cast<size_t>(m_) + 1);
+    tree_offset.push_back(0);
+
+    int64_t base = 0;
+    for (int32_t j = 0; j < m_; ++j) {
+        std::vector<int32_t> variable, left, right;
+        std::vector<double> value, mu;
+
+        forest_[static_cast<size_t>(j)].serialize(variable, value, left, right, mu);
+
+        const int64_t n_nodes = static_cast<int64_t>(variable.size());
+
+        variable_all.insert(variable_all.end(), variable.begin(), variable.end());
+        value_all.insert(value_all.end(), value.begin(), value.end());
+        mu_all.insert(mu_all.end(), mu.begin(), mu.end());
+
+        for (int32_t x : left) {
+            left_all.push_back(x >= 0 ? static_cast<int32_t>(x + base) : -1);
+        }
+        for (int32_t x : right) {
+            right_all.push_back(x >= 0 ? static_cast<int32_t>(x + base) : -1);
+        }
+
+        base += n_nodes;
+        tree_offset.push_back(base);
+    }
+
+    py::array_t<int32_t> variable_arr(variable_all.size());
+    py::array_t<double> value_arr(value_all.size());
+    py::array_t<int32_t> left_arr(left_all.size());
+    py::array_t<int32_t> right_arr(right_all.size());
+    py::array_t<double> mu_arr(mu_all.size());
+    py::array_t<int64_t> tree_offset_arr(tree_offset.size());
+
+    std::memcpy(variable_arr.mutable_data(), variable_all.data(),
+                variable_all.size() * sizeof(int32_t));
+    std::memcpy(value_arr.mutable_data(), value_all.data(),
+                value_all.size() * sizeof(double));
+    std::memcpy(left_arr.mutable_data(), left_all.data(),
+                left_all.size() * sizeof(int32_t));
+    std::memcpy(right_arr.mutable_data(), right_all.data(),
+                right_all.size() * sizeof(int32_t));
+    std::memcpy(mu_arr.mutable_data(), mu_all.data(),
+                mu_all.size() * sizeof(double));
+    std::memcpy(tree_offset_arr.mutable_data(), tree_offset.data(),
+                tree_offset.size() * sizeof(int64_t));
+
+    return py::make_tuple(
+        std::move(variable_arr),
+        std::move(value_arr),
+        std::move(left_arr),
+        std::move(right_arr),
+        std::move(mu_arr),
+        std::move(tree_offset_arr)
+    );
+}
+
 void BackfittingEngine::validate_tree(int32_t j) const {
     check_tree_index(j);
     forest_[static_cast<size_t>(j)].validate();
@@ -407,9 +536,21 @@ bool BackfittingEngine::draw_tree(
 ) {
     check_tree_index(j);
     validate_residuals_array(residuals);
+    return draw_tree_impl(j, residuals, sigma2, sigma_mu2, alpha, beta, move_distribution);
+}
 
+bool BackfittingEngine::draw_tree_impl(
+    int32_t j,
+    const DoubleArray& residuals,
+    double sigma2,
+    double sigma_mu2,
+    double alpha,
+    double beta,
+    const std::array<double, 4>& move_distribution
+) {
     Tree& tree = forest_[static_cast<size_t>(j)];
 
+    //
     auto depth_of_node = [&](int32_t node_idx) -> int32_t {
         int32_t depth = 0;
         int32_t cur = node_idx;
@@ -419,7 +560,6 @@ bool BackfittingEngine::draw_tree(
         }
         return depth;
     };
-
     auto log_accept_draw = [&]() -> double {
         std::uniform_real_distribution<double> dist(0.0, 1.0);
         const double u = std::max(dist(rng_), std::numeric_limits<double>::min());
@@ -429,30 +569,25 @@ bool BackfittingEngine::draw_tree(
     const int move = sample_move(move_distribution);
 
     if (move == GROW) {
-        const auto candidates = tree.terminal_nodes(true);
+        const auto& candidates = tree.terminal_nodes(true);
         if (candidates.empty()) return false;
-
         std::uniform_int_distribution<int32_t> node_dist(
             0, static_cast<int32_t>(candidates.size()) - 1
         );
         const int32_t node_idx = candidates[static_cast<size_t>(node_dist(rng_))];
         const Node& node = tree.node(node_idx);
-
         const int32_t b_ = static_cast<int32_t>(node.valid_vars.size());
         if (b_ == 0) return false;
-
         std::uniform_int_distribution<int32_t> var_dist(0, b_ - 1);
         const int32_t variable = node.valid_vars[static_cast<size_t>(var_dist(rng_))];
-
         const int32_t eta_ = node.eta_by_var.at(static_cast<size_t>(variable));
         if (eta_ <= 0) return false;
-
         std::uniform_int_distribution<int32_t> split_dist(0, eta_ - 1);
         const int32_t split_idx = split_dist(rng_);
 
         auto proposal_opt = tree.propose_grow(node_idx, variable, split_idx);
         if (!proposal_opt.has_value()) return false;
-        const ProposalSubtree& proposal = *proposal_opt;
+        const GrowProposalLite& proposal = *proposal_opt;
 
         const int32_t p_old = static_cast<int32_t>(candidates.size());
         const int32_t n_prunable_live =
@@ -468,7 +603,6 @@ bool BackfittingEngine::draw_tree(
                 delta -= 1;
             }
         }
-
         const int32_t n_prunable_new = std::max<int32_t>(1, n_prunable_live + delta);
 
         const double log_transition_ratio =
@@ -479,10 +613,27 @@ bool BackfittingEngine::draw_tree(
             - std::log(move_distribution[GROW])
             - std::log(static_cast<double>(n_prunable_new));
 
-        std::vector<std::vector<int32_t>> old_terminals{node.rows};
+        const auto r = residuals.unchecked<1>();
+        auto terminal_stat_from_rows = [&](const std::vector<int32_t>& rows) -> TerminalStat {
+            double sum_r = 0.0;
+            for (int32_t row : rows) {
+                sum_r += r(row);
+            }
+            return TerminalStat{
+                static_cast<int32_t>(rows.size()),
+                sum_r
+            };
+        };
+
+        std::vector<TerminalStat> old_terminals{
+            terminal_stat_from_rows(node.rows)
+        };
+        std::vector<TerminalStat> new_terminals{
+            terminal_stat_from_rows(proposal.left_by_var[0]),
+            terminal_stat_from_rows(proposal.right_by_var[0])
+        };
         const double log_lik_ratio = log_likelihood_ratio(
-            residuals,
-            proposal.terminals,
+            new_terminals,
             old_terminals,
             sigma2,
             sigma_mu2
@@ -496,18 +647,16 @@ bool BackfittingEngine::draw_tree(
                                       - std::log(static_cast<double>(eta_));
 
         const double mh_ratio = log_transition_ratio + log_lik_ratio + log_tree_ratio;
-
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.replace_subtree(node_idx, proposal.subtree);
+            tree.apply_grow(proposal);
             return true;
         }
         return false;
     }
 
     if (move == PRUNE) {
-        const auto candidates = tree.prunable_nodes();
+        const auto& candidates = tree.prunable_nodes();
         if (candidates.empty()) return false;
-
         std::uniform_int_distribution<int32_t> node_dist(
             0, static_cast<int32_t>(candidates.size()) - 1
         );
@@ -518,7 +667,7 @@ bool BackfittingEngine::draw_tree(
 
         auto proposal_opt = tree.propose_prune(node_idx, 0.0f);
         if (!proposal_opt.has_value()) return false;
-        const ProposalSubtree& proposal = *proposal_opt;
+        const PruneProposalLite& proposal = *proposal_opt;
 
         const int32_t b_ =
             static_cast<int32_t>(tree.terminal_nodes(true).size()) -
@@ -535,13 +684,31 @@ bool BackfittingEngine::draw_tree(
                                             - std::log(static_cast<double>(p_))
                                             - std::log(static_cast<double>(eta_));
 
-        std::vector<std::vector<int32_t>> new_terminals{node.rows};
-        std::vector<std::vector<int32_t>> old_terminals{left_child.rows, right_child.rows};
-        const double log_lik_ratio = log_likelihood_ratio(residuals,
-                                                          old_terminals,
-                                                          new_terminals,
-                                                          sigma2,
-                                                          sigma_mu2);
+        const auto r = residuals.unchecked<1>();
+        auto terminal_stat_from_rows = [&](const std::vector<int32_t>& rows) -> TerminalStat {
+            double sum_r = 0.0;
+            for (int32_t row : rows) {
+                sum_r += r(row);
+            }
+            return TerminalStat{
+                static_cast<int32_t>(rows.size()),
+                sum_r
+            };
+        };
+
+        std::vector<TerminalStat> new_terminals{
+            terminal_stat_from_rows(node.rows)
+        };
+        std::vector<TerminalStat> old_terminals{
+            terminal_stat_from_rows(left_child.rows),
+            terminal_stat_from_rows(right_child.rows)
+        };
+        const double log_lik_ratio = log_likelihood_ratio(
+            old_terminals,
+            new_terminals,
+            sigma2,
+            sigma_mu2
+        );
 
         const int32_t d = depth_of_node(node_idx);
         const double log_tree_ratio =
@@ -552,100 +719,135 @@ bool BackfittingEngine::draw_tree(
             2.0 * std::log(1.0 - p_split(d + 1, alpha, beta));
 
         const double mh_ratio = log_transition_ratio + log_lik_ratio + log_tree_ratio;
-
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.replace_subtree(node_idx, proposal.subtree);
+            tree.apply_prune(proposal);
             return true;
         }
         return false;
     }
 
     if (move == CHANGE) {
-        const auto candidates = tree.internal_nodes();
+        const auto& candidates = tree.internal_nodes();
         if (candidates.empty()) return false;
-
         std::uniform_int_distribution<int32_t> node_dist(
             0, static_cast<int32_t>(candidates.size()) - 1
         );
         const int32_t node_idx = candidates[static_cast<size_t>(node_dist(rng_))];
-
         auto rule_opt = sample_uniform_change_rule(tree, node_idx);
         if (!rule_opt.has_value()) return false;
+        const int32_t new_var = rule_opt->first;
+        const int32_t new_split_idx = rule_opt->second;
+        const double new_split_value =
+            tree.split_value_at(
+                tree.node(node_idx).rows_by_var.at(static_cast<size_t>(new_var)),
+                new_var,
+                new_split_idx
+            );
 
-        auto proposal_opt = tree.propose_change(node_idx, rule_opt->first, rule_opt->second);
-        if (!proposal_opt.has_value()) return false;
-        const ProposalSubtree& proposal = *proposal_opt;
+        std::vector<TerminalStat> old_terminals;
+        collect_terminal_stats(tree, node_idx, residuals, old_terminals);
+        std::vector<InternalStat> old_internals;
+        collect_internal_stats(tree, node_idx, old_internals);
 
-        std::vector<std::vector<int32_t>> old_terminals;
-        collect_terminal_rows(tree, node_idx, old_terminals);
+        std::vector<RuleOverride> overrides{
+            RuleOverride{node_idx, new_var, new_split_idx, new_split_value}
+        };
+        auto ws_opt = tree.evaluate_same_shape_workspace(node_idx, overrides);
+        if (!ws_opt.has_value()) return false;
+        const SameShapeWorkspace& ws = *ws_opt;
 
-        std::vector<int32_t> old_internals;
-        collect_internal_nodes(tree, node_idx, old_internals);
-
+        std::vector<TerminalStat> new_terminals;
+        collect_terminal_stats_workspace(ws, residuals, new_terminals);
+        std::vector<InternalStat> new_internals;
+        collect_internal_stats_workspace(ws, new_internals);
         const double log_lik_ratio = log_likelihood_ratio(
-            residuals,
-            proposal.terminals,
-            old_terminals,
-            sigma2,
-            sigma_mu2
+            new_terminals, old_terminals, sigma2, sigma_mu2
         );
 
         const double log_prior = log_prior_ratio(
-            proposal.subtree,
-            proposal.internals,
-            tree,
-            old_internals
+            new_internals, old_internals
         );
 
         const double mh_ratio = log_lik_ratio + log_prior;
-
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.replace_subtree(node_idx, proposal.subtree);
+            tree.apply_same_shape_workspace(ws);
             return true;
         }
         return false;
     }
 
     if (move == SWAP) {
-        const auto candidates = tree.swappable_nodes();
+        const auto& candidates = tree.swappable_nodes();
         if (candidates.empty()) return false;
-
         std::uniform_int_distribution<int32_t> node_dist(
             0, static_cast<int32_t>(candidates.size()) - 1
         );
         const int32_t node_idx = candidates[static_cast<size_t>(node_dist(rng_))];
         const int mode = sample_swap_mode(tree, node_idx);
+        const Node& parent = tree.node(node_idx);
 
-        auto proposal_opt = tree.propose_swap(node_idx, mode);
-        if (!proposal_opt.has_value()) return false;
-        const ProposalSubtree& proposal = *proposal_opt;
+        std::vector<TerminalStat> old_terminals;
+        collect_terminal_stats(tree, node_idx, residuals, old_terminals);
+        std::vector<InternalStat> old_internals;
+        collect_internal_stats(tree, node_idx, old_internals);
 
-        std::vector<std::vector<int32_t>> old_terminals;
-        collect_terminal_rows(tree, node_idx, old_terminals);
+        std::vector<RuleOverride> overrides;
+        if (mode == SWAP_LEFT) {
+            const Node& child = tree.node(parent.left);
+            overrides.push_back({
+                node_idx, child.variable, child.split_idx, child.value
+            });
+            overrides.push_back({
+                parent.left, parent.variable, parent.split_idx, parent.value
+            });
+        }
+        else if (mode == SWAP_RIGHT) {
+            const Node& child = tree.node(parent.right);
+            overrides.push_back({
+                node_idx, child.variable, child.split_idx, child.value
+            });
+            overrides.push_back({
+                parent.right, parent.variable, parent.split_idx, parent.value
+            });
+        }
+        else if (mode == SWAP_BOTH) {
+            const Node& left_child = tree.node(parent.left);
+            const Node& right_child = tree.node(parent.right);
 
-        std::vector<int32_t> old_internals;
-        collect_internal_nodes(tree, node_idx, old_internals);
+            overrides.push_back({
+                node_idx, left_child.variable, left_child.split_idx, left_child.value
+            });
+            overrides.push_back({
+                parent.left, parent.variable, parent.split_idx, parent.value
+            });
+            overrides.push_back({
+                parent.right, parent.variable, parent.split_idx, parent.value
+            });
+        }
+        else {
+            throw std::runtime_error("Unknown swap mode.");
+        }
+
+        auto ws_opt = tree.evaluate_same_shape_workspace(node_idx, overrides);
+        if (!ws_opt.has_value()) return false;
+        const SameShapeWorkspace& ws = *ws_opt;
+
+        std::vector<TerminalStat> new_terminals;
+        collect_terminal_stats_workspace(ws, residuals, new_terminals);
+        std::vector<InternalStat> new_internals;
+        collect_internal_stats_workspace(ws, new_internals);
 
         const double log_lik_ratio = log_likelihood_ratio(
-            residuals,
-            proposal.terminals,
-            old_terminals,
-            sigma2,
-            sigma_mu2
+            new_terminals, old_terminals, sigma2, sigma_mu2
         );
 
         const double log_prior = log_prior_ratio(
-            proposal.subtree,
-            proposal.internals,
-            tree,
-            old_internals
+            new_internals, old_internals
         );
 
         const double mh_ratio = log_lik_ratio + log_prior;
-
         if (log_accept_draw() < std::min(0.0, mh_ratio)) {
-            tree.replace_subtree(node_idx, proposal.subtree);
-            tree.validate();
+            tree.apply_same_shape_workspace(ws);
             return true;
         }
         return false;
@@ -662,14 +864,28 @@ void bind_backfitting_engine(py::module_& m) {
                 int32_t,
                 uint64_t
             >(),
+            "Create a backfitting engine for a feature matrix and tree ensemble size.",
             py::arg("X"),
             py::arg("m"),
             py::arg("seed") = 0
         )
-        .def("initialize_root_forest", &BackfittingEngine::initialize_root_forest)
+        .def("initialize_root_forest", &BackfittingEngine::initialize_root_forest,
+            "Initialize all trees as single-node root trees.")
+        .def(
+            "backfitting_sweep",
+            &BackfittingEngine::backfitting_sweep,
+            "Run one full backfitting sweep over all trees.",
+            py::arg("residuals"),
+            py::arg("sigma2"),
+            py::arg("sigma_mu2"),
+            py::arg("alpha"),
+            py::arg("beta"),
+            py::arg("move_distribution")
+        )
         .def(
             "draw_tree",
             &BackfittingEngine::draw_tree,
+            "Propose and possibly accept one structure update for tree j.",
             py::arg("j"),
             py::arg("residuals"),
             py::arg("sigma2"),
@@ -681,22 +897,29 @@ void bind_backfitting_engine(py::module_& m) {
         .def(
             "draw_mu",
             &BackfittingEngine::draw_mu,
+            "Draw new terminal-node means for tree j.",
             py::arg("j"),
             py::arg("residuals"),
             py::arg("sigma2"),
             py::arg("sigma_mu2")
         )
-        .def(
-            "refresh_tree_training_predictions",
-            &BackfittingEngine::refresh_tree_training_predictions,
-            py::arg("j"),
-            py::arg("training_predictions"),
-            py::arg("fitted_sums")
-        )
-        .def("serialize_tree", &BackfittingEngine::serialize_tree, py::arg("j"))
-        .def("validate_tree", &BackfittingEngine::validate_tree, py::arg("j"))
-        .def("validate_forest", &BackfittingEngine::validate_forest)
-        .def("n", &BackfittingEngine::n)
-        .def("p", &BackfittingEngine::p)
-        .def("m", &BackfittingEngine::m);
+        .def("serialize_tree", &BackfittingEngine::serialize_tree, py::arg("j"),
+            "Serialize tree j into flat node arrays.")
+        .def("serialize_forest", &BackfittingEngine::serialize_forest,
+            "Serialize the full forest into flat arrays.")
+        .def("validate_tree", &BackfittingEngine::validate_tree,
+            "Validate the structure and cached state of tree j.",
+            py::arg("j"))
+        .def("validate_forest", 
+            "Validate the structure and cached state of the full forest.",
+            &BackfittingEngine::validate_forest)
+        .def("n",
+            "Return the number of training rows.",
+            &BackfittingEngine::n)
+        .def("p",
+            "Return the number of predictor columns.",
+            &BackfittingEngine::p)
+        .def("m",
+            "Return the number of trees in the ensemble.",
+            &BackfittingEngine::m);
 }
