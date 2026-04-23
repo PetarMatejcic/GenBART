@@ -14,7 +14,7 @@ class ProbitBart(BaseBART):
                  n_burn=200,
                  n_samples=1000,
                  move_distribution=(0.25, 0.25, 0.40, 0.10),
-                 random_state=None):
+                 random_state=0):
 
         super().__init__(m=m,
                          alpha=alpha,
