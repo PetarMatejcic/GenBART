@@ -1,46 +1,50 @@
 # GenBART
 
-GenBART is a Python/C++ implementation of **Bayesian Additive Regression Trees (BART)**.
+GenBART is a from-scratch Python/C++ implementation of **Bayesian Additive Regression Trees (BART)**.
 
-This project started as part of my master's thesis, with the goal of implementing BART from scratch and understanding the algorithm in detail. At the same time, it is being developed into a general-purpose package that can be extended with additional BART variants over time.
+GenBART started as part of my master's thesis work, but with the goal of building a working general-purpose BART package.
+
+- From-scratch implementation of **Bayesian Additive Regression Trees**
+- **Regression BART** and **probit BART** interfaces
+- **C++ backfitting engine** for tree updates and posterior sampling
+- Posterior prediction with uncertainty summaries
+- Variable importance and partial dependence utilities
+- Example notebooks with 2D and 3D visualizations
+
+## Preview
+
+<p align="center">
+  <img src="docs/images/readme_plot_1.png" alt="2D BART fit" width="47%" />
+  <img src="docs/images/readme_plot_2.png" alt="3D BART surface approximation" width="47%" />
+</p>
+
+<p align="center">
+  <em>Posterior function approximation examples from the accompanying notebooks.</em>
+</p>
+
 
 ## What is BART?
 
-BART is a Bayesian sum-of-trees model for regression and classification. It models a response variable as a **sum of many small regression trees**. The individual trees are regularized to act as weak learners, and fitting is done with a **Bayesian backfitting MCMC algorithm**. This makes BART a flexible Bayesian nonparametric method, with built-in uncertainty quantification.
+BART is a Bayesian sum-of-trees model for regression and classification. It models a response variable as a **sum of many small regression trees**, resulting in a flexible nonlinear model. 
 
-## Current scope
+The individual trees are regularized to act as weak learners, and fitting is done with a **Bayesian backfitting MCMC algorithm**. This allows for simple posterior inference such as determining _uncertainty intervals_, _partial dependence_ or _variable importance_.
 
-GenBART currently includes the core code needed for BART-style models.
+## Implemented components
 
-The package currently includes:
+### Python interface
 
-- regression BART
-- probit / classification BART
-- tree moves: grow, prune, change, and swap
-- a Bayesian backfitting engine implemented in C++
-- posterior prediction from stored MCMC draws
-- variable-importance summaries
-- marginalization utilities
+- `RegBart` for regression
+- `ProbitBart` for binary classification
+- posterior prediction utilities
+- variable importance
+- partial dependence / effect summaries
 
-Additional variants and extensions will be added later.
+### C++ backend
 
-## Structure
+- tree grow, prune, change, and swap proposals
+- Bayesian backfitting engine
+- dense posterior forest representation for faster prediction
 
-The codebase is split between Python and C++.
-
-### Python
-
-- `genbart/baseBART.py` — shared BART logic
-- `genbart/reg_bart.py` — regression BART interface
-- `genbart/probit_bart.py` — classification BART interface
-
-### C++
-
-- `tree.cpp` — tree operations
-- `backfitting_engine.cpp` — backfitting engine
-- `packed_forest.cpp` — compact storage of trees and fast posterior prediction
-
-Python handles the user-facing interface and high-level workflow, while C++ handles the more computationally intensive tree and MCMC operations.
 
 ## Minimal example
 
@@ -52,30 +56,27 @@ rng = np.random.default_rng(0)
 X = rng.uniform(0, 1, size=(200, 2))
 y = np.sin(2 * np.pi * X[:, 0]) + X[:, 1] ** 2 + rng.normal(0, 0.1, size=200)
 
-model = RegBart(
-    m=200,
-    n_burn=200,
-    n_samples=1000,
-    random_state=0,
-)
-
+model = RegBart(m=200, n_burn=200, n_samples=1000, random_state=0)
 model.fit(X, y)
 
 pred = model.predict(X)
 print(pred["prediction"][:5])
-
-vi = model.variable_importance()
-print(vi)
-
-grid = np.linspace(X[:, 0].min(), X[:, 0].max(), 50)
-marg = model.marginalize(variable=0, grid=grid)
 ```
+
+## Examples
+
+Example notebooks are available in the [notebooks](notebooks/) directory.
+
+- [Regression example](notebooks/basic_regression_example.ipynb)
+- [Probit classification example](notebooks/basic_probit_example.ipynb)
+
+## Status
+
+GenBART is actively evolving. The core functionality is already usable for experimentation and research, while the API, documentation, and additional model variants are still under development.
 
 ## Reference
 
-Chipman, H. A., George, E. I., and McCulloch, R. E. (2010).  
-**BART: Bayesian Additive Regression Trees.**  
-*The Annals of Applied Statistics*, 4(1), 266-298.
+Chipman, H. A., George, E. I., and McCulloch, R. E. (2010). **BART: Bayesian Additive Regression Trees.**  *The Annals of Applied Statistics*, 4(1), 266-298.
 
 ## License
 
