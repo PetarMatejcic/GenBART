@@ -111,11 +111,6 @@ class Tree {
         int32_t variable,
         int32_t split_idx
     ) const;
-    int32_t split_pos_of_value(
-        const std::vector<int32_t>& ord_v,
-        int32_t variable,
-        double value
-    ) const;
 
     std::optional<GrowProposalLite> propose_grow(
         int32_t node_idx,

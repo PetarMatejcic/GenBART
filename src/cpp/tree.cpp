@@ -266,45 +266,6 @@ double Tree::split_value_at(
     throw std::runtime_error("split_idx out of range for split_value_at.");
 }
 
-int32_t Tree::split_pos_of_value(
-    const std::vector<int32_t>& ord_v,
-    int32_t variable,
-    double value
-) const {
-    if (ord_v.empty()) {
-        throw std::runtime_error("split_pos_of_value called on empty rows.");
-    }
-    int32_t last = -1;
-    for (int32_t i = 0; i < static_cast<int32_t>(ord_v.size()); ++i) {
-        double x = X_[static_cast<size_t>(ord_v[static_cast<size_t>(i)]) * p_ + variable];
-        if (x == value) last = i;
-    }
-    if (last < 0) {
-        throw std::runtime_error("Current split value is not present in node rows.");
-    }
-    if (last + 1 >= static_cast<int32_t>(ord_v.size())) {
-        throw std::runtime_error("Current split value is not a valid split for this node.");
-    }
-
-    double x_last = X_[static_cast<size_t>(ord_v[static_cast<size_t>(last)]) * p_ + variable];
-    double x_next = X_[static_cast<size_t>(ord_v[static_cast<size_t>(last + 1)]) * p_ + variable];
-    if (x_last == x_next) {
-        throw std::runtime_error("Current split value is not a valid split for this node.");
-    }
-
-    int32_t pos = 0;
-    double prev = X_[static_cast<size_t>(ord_v[0]) * p_ + variable];
-    for (int32_t i = 1; i <= last; ++i) {
-        double cur = X_[static_cast<size_t>(ord_v[static_cast<size_t>(i)]) * p_ + variable];
-        if (cur != prev) {
-            if (i - 1 == last) break;
-            ++pos;
-            prev = cur;
-        }
-    }
-    return pos;
-}
-
 bool Tree::value_present_and_splittable(const Node& cur) const {
     const auto& ord_v = cur.rows_by_var[static_cast<size_t>(cur.variable)];
     if (ord_v.size() <= 1) { return false; }

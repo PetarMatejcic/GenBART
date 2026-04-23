@@ -75,6 +75,9 @@ public:
     int32_t p() const noexcept { return p_; }
     int32_t m() const noexcept { return m_; }
 
+    void test_apply_tree_to_residuals(int32_t j, DoubleArray residuals, double sign);
+    void test_draw_mu_and_subtract(int32_t j, DoubleArray residuals, double sigma2, double sigma_mu2);
+
 private:
     enum MoveKind : int {
         GROW = 0,

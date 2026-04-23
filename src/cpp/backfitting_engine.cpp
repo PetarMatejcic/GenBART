@@ -196,12 +196,12 @@ std::optional<std::pair<int32_t, int32_t>> BackfittingEngine::sample_uniform_cha
     if (it == vars.end()) { throw std::runtime_error("Current split variable is not in valid_vars."); }
 
     const int32_t cur_var_pos = static_cast<int32_t>(std::distance(vars.begin(), it));
-    const int32_t cur_split_pos = tree.split_pos_of_value(
-        node.rows_by_var.at(static_cast<size_t>(node.variable)),
-        node.variable,
-        node.value
-    );
-    int64_t cur_global = cur_split_pos;
+    const int32_t cur_eta =
+        node.eta_by_var.at(static_cast<size_t>(node.variable));
+    if (node.split_idx < 0 || node.split_idx >= cur_eta) {
+        throw std::runtime_error("Current split_idx is not valid for this node.");
+    }
+    int64_t cur_global = node.split_idx;
     for (int32_t i = 0; i < cur_var_pos; ++i) {
         cur_global += counts[static_cast<size_t>(i)];
     }
@@ -815,6 +815,28 @@ bool BackfittingEngine::draw_tree_impl(
     throw std::runtime_error("Unknown move type.");
 }
 
+
+void BackfittingEngine::test_apply_tree_to_residuals(
+    int32_t j,
+    DoubleArray residuals,
+    double sign
+) {
+    check_tree_index(j);
+    validate_residuals_array(residuals);
+    apply_tree_to_residuals_impl(j, residuals, sign);
+}
+
+void BackfittingEngine::test_draw_mu_and_subtract(
+    int32_t j,
+    DoubleArray residuals,
+    double sigma2,
+    double sigma_mu2
+) {
+    check_tree_index(j);
+    validate_residuals_array(residuals);
+    draw_mu_and_subtract_impl(j, residuals, sigma2, sigma_mu2);
+}
+
 void bind_backfitting_engine(py::module_& m) {
     py::class_<BackfittingEngine>(m, "_BackfittingEngine")
         .def(
@@ -880,5 +902,15 @@ void bind_backfitting_engine(py::module_& m) {
             "Return the number of predictor columns.")
         .def("m",
             &BackfittingEngine::m,
-            "Return the number of trees in the ensemble.");
+            "Return the number of trees in the ensemble.")
+        
+        .def("test_apply_tree_to_residuals", &BackfittingEngine::test_apply_tree_to_residuals,
+            py::arg("j"),
+            py::arg("residuals"),
+            py::arg("sign"))
+        .def("test_draw_mu_and_subtract", &BackfittingEngine::test_draw_mu_and_subtract,
+            py::arg("j"),
+            py::arg("residuals"),
+            py::arg("sigma2"),
+            py::arg("sigma_mu2"));
 }
