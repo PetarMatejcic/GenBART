@@ -18,6 +18,6 @@ lines.markersize: 5
 
 figure.facecolor : white
 axes.facecolor : "#fafafa"
-savefig.facecolor : none
+savefig.facecolor : white
 
 axes.prop_cycle : cycler("color", ["#CC2936", "#08415C", "#28721D", "#EEBA0B", "#70201F"])
