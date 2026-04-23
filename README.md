@@ -43,28 +43,19 @@ Since GenBART includes a compiled C++ backend, installation requires a working P
 
 ## Implemented components
 
-<table>
-  <tr>
-    <td valign="top" width="50%">
-      <h3>Python interface</h3>
-      <ul>
-        <li><code>RegBart</code> for regression</li>
-        <li><code>ProbitBart</code> for binary classification</li>
-        <li>posterior prediction utilities</li>
-        <li>variable importance</li>
-        <li>partial dependence / effect summaries</li>
-      </ul>
-    </td>
-    <td valign="top" width="50%">
-      <h3>C++ backend</h3>
-      <ul>
-        <li>tree grow, prune, change, and swap proposals</li>
-        <li>Bayesian backfitting engine</li>
-        <li>dense posterior forest representation for faster prediction</li>
-      </ul>
-    </td>
-  </tr>
-</table>
+### Python interface
+
+- `RegBart` for regression
+- `ProbitBart` for binary classification
+- posterior prediction utilities
+- variable importance
+- partial dependence / effect summaries
+
+### C++ backend
+
+- tree grow, prune, change, and swap proposals
+- Bayesian backfitting engine
+- dense posterior forest representation for faster prediction
 
 ## Implementation overview
 
