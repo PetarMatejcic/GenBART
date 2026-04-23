@@ -911,15 +911,15 @@ void bind_backfitting_engine(py::module_& m) {
             "Validate the structure and cached state of tree j.",
             py::arg("j"))
         .def("validate_forest", 
-            "Validate the structure and cached state of the full forest.",
-            &BackfittingEngine::validate_forest)
+            &BackfittingEngine::validate_forest,
+            "Validate the structure and cached state of the full forest.")
         .def("n",
-            "Return the number of training rows.",
-            &BackfittingEngine::n)
+            &BackfittingEngine::n,
+            "Return the number of training rows.")
         .def("p",
-            "Return the number of predictor columns.",
-            &BackfittingEngine::p)
+            &BackfittingEngine::p,
+            "Return the number of predictor columns.")
         .def("m",
-            "Return the number of trees in the ensemble.",
-            &BackfittingEngine::m);
+            &BackfittingEngine::m,
+            "Return the number of trees in the ensemble.");
 }
