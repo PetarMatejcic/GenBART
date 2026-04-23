@@ -31,6 +31,16 @@ BART is a Bayesian sum-of-trees model for regression and classification. It mode
 
 The individual trees are regularized to act as weak learners, and fitting is done with a **Bayesian backfitting MCMC algorithm**. This allows for simple posterior inference such as determining _uncertainty intervals_, _partial dependence_ or _variable importance_.
 
+## Installation
+
+For a local editable install from the repository root:
+
+```bash
+pip install -e .
+```
+
+Since GenBART includes a compiled C++ backend, installation requires a working Python/C++ build environment.
+
 ## Implemented components
 
 ### Python interface
@@ -47,6 +57,14 @@ The individual trees are regularized to act as weak learners, and fitting is don
 - Bayesian backfitting engine
 - dense posterior forest representation for faster prediction
 
+## Implementation overview
+
+The package is split into a user-facing Python layer and a compiled C++ backend.
+
+- The **Python layer** contains the main model interfaces, fitting workflow, posterior summaries, and interpretation utilities.
+- The **C++ layer** handles the computationally heavy parts of the algorithm: tree proposals, Bayesian backfitting sweeps and posterior prediction.
+
+This makes the code easy to understand for writing BART variants, while the efficient C++ layer yields much faster backfitting and prediciton.
 
 ## Minimal example
 
@@ -81,4 +99,6 @@ GenBART is actively evolving. The core functionality is already usable for exper
 Chipman, H. A., George, E. I., and McCulloch, R. E. (2010). **BART: Bayesian Additive Regression Trees.**  *The Annals of Applied Statistics*, 4(1), 266-298.
 
 ## License
+This project is released under the **MIT License**.
 
+See the [LICENSE](LICENSE) file for details.
