@@ -64,6 +64,7 @@ class RegBart(BaseBART):
             self.sigma2 = rss / denom
         else:
             self.sigma2 = np.var(self.y_work)
+        self.sigma2 = max(self.sigma2, 1e-12)
         self.lambda_ = (self.sigma2 / self.nu) * chi2.ppf(1-self.q, df=self.nu)
 
         for _ in range(self.n_burn):
