@@ -266,6 +266,32 @@ double Tree::split_value_at(
     throw std::runtime_error("split_idx out of range for split_value_at.");
 }
 
+std::optional<int32_t> Tree::split_idx_of_value(
+    const std::vector<int32_t>& ord_v,
+    int32_t variable,
+    double value
+) const {
+    if (ord_v.size() <= 1) {
+        return std::nullopt;
+    }
+
+    int32_t seen = -1;
+    double prev = X_[static_cast<size_t>(ord_v[0]) * p_ + variable];
+
+    for (size_t k = 1; k < ord_v.size(); ++k) {
+        const double cur = X_[static_cast<size_t>(ord_v[k]) * p_ + variable];
+        if (cur != prev) {
+            ++seen;
+            if (prev == value) {
+                return seen;
+            }
+            prev = cur;
+        }
+    }
+
+    return std::nullopt;
+}
+
 bool Tree::value_present_and_splittable(const Node& cur) const {
     const auto& ord_v = cur.rows_by_var[static_cast<size_t>(cur.variable)];
     if (ord_v.size() <= 1) { return false; }
@@ -569,7 +595,6 @@ std::optional<SwapProposalLite> Tree::propose_swap(
 
         const bool same_rule =
             (left_child.variable == right_child.variable) &&
-            (left_child.split_idx == right_child.split_idx) &&
             (left_child.value == right_child.value);
 
         if (!same_rule) {
@@ -750,8 +775,22 @@ bool Tree::build_same_shape_workspace_dfs(
 
     const RuleOverride* ov = find_override(overrides, live_idx);
     const int32_t variable = ov ? ov->variable : live.variable;
-    const int32_t split_idx = ov ? ov->split_idx : live.split_idx;
     const double split_value = ov ? ov->split_value : live.value;
+
+    int32_t split_idx;
+    if (ov) {
+        auto idx_opt = split_idx_of_value(
+            cur.rows_by_var.at(static_cast<size_t>(variable)),
+            variable,
+            split_value
+        );
+        if (!idx_opt.has_value()) {
+            return false;
+        }
+        split_idx = *idx_opt;
+    } else {
+        split_idx = live.split_idx;
+    }
 
     const int32_t eta = cur.eta_by_var.at(static_cast<size_t>(variable));
     if (eta <= 0 || split_idx < 0 || split_idx >= eta) {
