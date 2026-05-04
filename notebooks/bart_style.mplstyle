@@ -16,8 +16,8 @@ axes.axisbelow: True
 lines.linewidth: 1.7
 lines.markersize: 5
 
-figure.facecolor : #f7f7f7
+figure.facecolor : "#f7f7f7"
 axes.facecolor : "#fafafa"
-savefig.facecolor : #f7f7f7
+savefig.facecolor : "#f7f7f7"
 
 axes.prop_cycle : cycler("color", ["#CC2936", "#08415C", "#28721D", "#EEBA0B", "#70201F"])
