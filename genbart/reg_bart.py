@@ -1,9 +1,33 @@
+"""Regression BART estimator for continuous-response modeling.
+
+This module defines ``RegBart``, a Bayesian additive regression trees estimator
+for continuous outcomes. The model rescales the response, samples posterior
+sum-of-tree draws with Bayesian backfitting MCMC, stores retained forests in a
+packed prediction format, and exposes prediction, interval, marginalization, and
+variance-update utilities.
+"""
+
 import numpy as np
 from scipy.stats import chi2
 from genbart.baseBART import BaseBART
 
 
 class RegBart(BaseBART):
+    """Bayesian additive regression trees model for continuous outcomes.
+
+    ``RegBart`` fits a sum-of-trees regression model with Gaussian observation
+    noise. Responses are shifted and scaled before sampling so the terminal-node
+    prior can shrink each tree toward a weak contribution. Posterior forest draws
+    are retained and used to compute point predictions, posterior intervals,
+    variable-usage summaries, and approximate marginal effects.
+
+    Attributes:
+        nu: Degrees of freedom for the inverse-chi-square prior on ``sigma2``.
+        q: Prior quantile level used to calibrate the scale parameter ``lambda_``.
+        y_shift: Center used to transform the original response before fitting.
+        y_scale: Scale used to transform the original response before fitting.
+        lambda_: Scale parameter for the inverse-chi-square prior on ``sigma2``.
+    """
     nu: float
     q: float
     y_shift: float
@@ -21,6 +45,22 @@ class RegBart(BaseBART):
                  n_samples=1000,
                  move_distribution=(0.25, 0.25, 0.40, 0.10),
                  random_state=0):
+        """Initialize regression BART hyperparameters.
+
+        Args:
+            m: Number of trees in each posterior forest draw.
+            alpha: Base probability parameter for the tree-splitting prior.
+            beta: Depth penalty parameter for the tree-splitting prior.
+            k: Shrinkage parameter controlling the terminal-node prior variance.
+            nu: Degrees of freedom for the inverse-chi-square prior on observation
+                variance.
+            q: Quantile level used to calibrate the observation-variance prior.
+            n_burn: Number of burn-in MCMC iterations to discard.
+            n_samples: Number of posterior MCMC iterations to retain.
+            move_distribution: Proposal probabilities for grow, prune, change, and
+                swap moves, respectively.
+            random_state: Seed for reproducible NumPy and backend randomness.
+        """
         super().__init__(m=m,
                          alpha=alpha,
                          beta=beta,
@@ -33,6 +73,26 @@ class RegBart(BaseBART):
         self.q = q
 
     def fit(self, X, y):
+        """Fit the regression BART model to a feature matrix and continuous response.
+
+        The response is shifted and scaled to approximately the interval ``[-0.5, 0.5]``.
+        The method initializes the backend forest, residual state, terminal-node prior,
+        and observation-variance prior; runs burn-in iterations; then retains
+        ``n_samples`` serialized posterior forest draws for later prediction.
+
+        Args:
+            X: Feature matrix of shape ``(n_samples, n_features)`` or a one-dimensional
+                array for a single predictor.
+            y: Continuous response array of length ``n_samples``.
+
+        Returns:
+            The fitted ``RegBart`` instance.
+
+        Raises:
+            ValueError: If ``X`` has more than two dimensions.
+            RuntimeError: If backend forest serialization or packed-forest finalization
+                fails.
+        """
         # Transforming and storing data.
         self.X = np.asarray(X)
         if self.X.ndim == 1:
@@ -93,6 +153,31 @@ class RegBart(BaseBART):
                 central_measure="mean",
                 conf_int=True,
                 level: float = 0.90):
+        """Predict continuous responses from retained posterior forest draws.
+
+        For each input row, this method evaluates every retained posterior forest draw,
+        summarizes the posterior predictive mean function by either the mean or median,
+        and optionally returns central posterior intervals. Predictions are transformed
+        back to the original response scale before being returned.
+
+        Args:
+            X: Input feature matrix or a single feature row. A one-dimensional input is
+                treated as one row when the model has multiple predictors, and as a
+                column vector when the model has one predictor.
+            central_measure: Posterior summary to report. Supported values are
+                ``"mean"`` and ``"median"``.
+            conf_int: Whether to include posterior interval bounds.
+            level: Credible interval level used when ``conf_int`` is true.
+
+        Returns:
+            A dictionary containing ``"prediction"`` and, when requested,
+            ``"conf_int_low"`` and ``"conf_int_high"``. Values are scalars for a single
+            multi-feature row and NumPy arrays for multiple rows.
+
+        Raises:
+            RuntimeError: If the model has not been fitted.
+            ValueError: If ``central_measure`` is not ``"mean"`` or ``"median"``.
+        """
         data = np.asarray(X)
         a = 1 - level
         out = {}
@@ -136,6 +221,31 @@ class RegBart(BaseBART):
                     grid,
                     sampling_size: int = 100,
                     level=0.9):
+        """Approximate a one-variable partial dependence effect over a supplied grid.
+
+        For each value in ``grid``, this method draws random covariate combinations
+        uniformly over the observed feature ranges, fixes the selected variable to the
+        grid value, predicts for the sampled rows, and summarizes the resulting
+        predictions. This provides a simulation-based marginalization over the remaining
+        predictors.
+
+        Args:
+            variable: Zero-based index of the predictor to vary.
+            grid: One-dimensional array of values at which to evaluate the selected
+                predictor.
+            sampling_size: Number of random covariate combinations to sample for each
+                grid value.
+            level: Central interval level for the empirical distribution of marginalized
+                predictions.
+
+        Returns:
+            A dictionary with ``"prediction"``, ``"conf_int_low"``, and
+            ``"conf_int_high"``, each a NumPy array with length ``grid.shape[0]``.
+
+        Notes:
+            Random covariate draws use NumPy's global random state rather than the
+            estimator's seeded generator.
+        """
         lows = [ev[0] for ev in self.extreme_values]
         highs = [ev[1] for ev in self.extreme_values]
 
@@ -163,13 +273,34 @@ class RegBart(BaseBART):
         return out
 
     def _one_mcmc_iteration(self):
+        """Run one regression BART MCMC iteration.
+
+        Performs a full Bayesian backfitting sweep over all trees, then draws a new
+        observation variance ``sigma2`` from its full conditional distribution.
+        """
         self._backfitting_sweep()
         self.sigma2 = self._draw_sigma()
 
     def _draw_sigma(self):
+        """Draw the observation variance from its inverse-gamma full conditional.
+
+        The draw is based on the current residual sum of squares, the prior degrees of
+        freedom ``nu``, and the prior scale parameter ``lambda_``.
+
+        Returns:
+            A scalar draw of ``sigma2``.
+        """
         sse = np.sum((self.residuals)**2)
         return 1.0 / self.rng.gamma(shape=0.5*(self.nu+self.n),
                                     scale=2.0/(self.nu*self.lambda_ + sse))
 
     def _inverse_transform_y(self, v: np.ndarray):
+        """Transform fitted values from the working response scale to the original scale.
+
+        Args:
+            v: Scalar or NumPy array on the shifted-and-scaled response scale.
+
+        Returns:
+            ``v`` rescaled by ``y_scale`` and shifted by ``y_shift``.
+        """
         return (v * self.y_scale) + self.y_shift
