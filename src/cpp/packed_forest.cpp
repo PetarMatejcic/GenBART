@@ -232,7 +232,14 @@ void PackedForest::validate_matrix_input(const py::array_t<double, py::array::c_
 }
 
 void bind_packed_forest(py::module_& m) {
-    py::class_<PackedForest>(m, "PackedForest")
+    py::class_<PackedForest>(m, "PackedForest",
+        R"pbdoc(
+        Packed representation of retained posterior BART forest draws.
+
+        A PackedForest stores all retained MCMC forest draws in flat node arrays.
+        It is optimized for fast posterior prediction by summing tree predictions
+        across each retained draw.
+        )pbdoc")
         .def(
             py::init<
                 py::array_t<int32_t, py::array::c_style | py::array::forcecast>,
@@ -245,6 +252,24 @@ void bind_packed_forest(py::module_& m) {
                 int64_t,
                 int64_t
             >(),
+            R"pbdoc(
+            Create a packed forest from flat serialized node arrays.
+
+            Args:
+                variable: Split-variable array. Negative values indicate terminal nodes.
+                value: Split-threshold array.
+                left: Left-child node indices, or -1 for terminal nodes.
+                right: Right-child node indices, or -1 for terminal nodes.
+                mu: Terminal-node mean values.
+                tree_offset: Offsets delimiting each serialized tree.
+                n_draws: Number of retained posterior forest draws.
+                m: Number of trees per forest draw.
+                p: Number of predictor columns expected at prediction time.
+
+            Raises:
+                RuntimeError: If array dimensions, node-array lengths, offsets, or tree
+                    structure invariants are invalid.
+            )pbdoc",
             py::arg("variable"),
             py::arg("value"),
             py::arg("left"),
@@ -255,6 +280,38 @@ void bind_packed_forest(py::module_& m) {
             py::arg("m"),
             py::arg("p")
         )
-        .def("draw_sums_row", &PackedForest::draw_sums_row, py::arg("x"))
-        .def("draw_sums_matrix", &PackedForest::draw_sums_matrix, py::arg("X"));
+        .def("draw_sums_row",
+            &PackedForest::draw_sums_row,
+            R"pbdoc(
+            Evaluate all posterior forest draws for one feature row.
+
+            Args:
+                x: One-dimensional feature row with length equal to the training feature
+                    count.
+
+            Returns:
+                A one-dimensional NumPy array of length n_draws. Each entry is the sum of
+                all tree predictions for one retained posterior draw.
+
+            Raises:
+                RuntimeError: If x is not one-dimensional or has the wrong length.
+            )pbdoc",
+            py::arg("x"))
+        .def("draw_sums_matrix",
+            &PackedForest::draw_sums_matrix,
+            R"pbdoc(
+            Evaluate all posterior forest draws for a feature matrix.
+
+            Args:
+                X: Two-dimensional feature matrix with shape (n_rows, p).
+
+            Returns:
+                A NumPy array with shape (n_draws, n_rows). Entry (d, i) is the sum of all
+                tree predictions for posterior draw d at row i.
+
+            Raises:
+                RuntimeError: If X is not two-dimensional or has the wrong number of
+                    columns.
+            )pbdoc",
+            py::arg("X"));
 }

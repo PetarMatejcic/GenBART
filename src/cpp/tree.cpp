@@ -957,7 +957,14 @@ void Tree::validate() const {
 }
 
 void bind_tree(py::module_& m) {
-    py::class_<Tree>(m, "_Tree")
+    py::class_<Tree>(m, "_Tree",
+        R"pbdoc(
+        Mutable binary regression tree used by the backend sampler.
+
+        This class is exposed primarily for backend tests and diagnostics. It stores
+        row-membership caches, split metadata, tree topology, and proposal helpers for
+        grow, prune, change, and swap moves.
+        )pbdoc")
         .def(
             py::init([](py::array_t<double, py::array::c_style | py::array::forcecast> X_in) {
                 if (X_in.ndim() != 2) {
@@ -990,36 +997,73 @@ void bind_tree(py::module_& m) {
 
                 return Tree(X_ptr, n, p, root_rows_by_var);
             }),
-            "Create a tree with a single root node from a 2D feature matrix.",
+            R"pbdoc(
+            Create a root-only tree from a feature matrix.
+
+            Args:
+                X: Two-dimensional feature matrix used to initialize row-order caches.
+
+            Raises:
+                RuntimeError: If X is not two-dimensional or has non-positive shape.
+            )pbdoc",
             py::arg("X")
         )
         .def("root", &Tree::root,
-            "Return the index of the root node.")
+            R"pbdoc(
+            Return the index of the root node.
+
+            Returns:
+                Integer node index of the tree root.
+            )pbdoc")
         .def("terminal_nodes",
             [](const Tree& t, bool growable) {
                 const auto& v = t.terminal_nodes(growable);
                 return std::vector<int32_t>(v.begin(), v.end());
             },
-            "Return terminal node indices. If growable is true, return only leaves with valid splits.",
+            R"pbdoc(
+            Return terminal node indices.
+
+            Args:
+                growable: If True, return only terminal nodes with at least one valid split.
+                    If False, return all terminal nodes.
+
+            Returns:
+                List of terminal node indices.
+            )pbdoc",
             py::arg("growable") = true)
         .def("internal_nodes",
             [](const Tree& t) {
                 const auto& v = t.internal_nodes();
                 return std::vector<int32_t>(v.begin(), v.end());
             },
-            "Return indices of all internal nodes.")
+            R"pbdoc(
+            Return internal node indices.
+
+            Returns:
+                List of all non-terminal split node indices.
+            )pbdoc")
         .def("prunable_nodes",
             [](const Tree& t) {
                 const auto& v = t.prunable_nodes();
                 return std::vector<int32_t>(v.begin(), v.end());
             },
-            "Return internal nodes whose children are both terminal.")
+            R"pbdoc(
+            Return nodes eligible for a prune move.
+
+            Returns:
+                List of internal node indices whose children are both terminal.
+            )pbdoc")
         .def("swappable_nodes",
             [](const Tree& t) {
                 const auto& v = t.swappable_nodes();
                 return std::vector<int32_t>(v.begin(), v.end());
             },
-            "Return internal nodes eligible for a swap move.")
+            R"pbdoc(
+            Return nodes eligible for a swap move.
+
+            Returns:
+                List of internal node indices with at least one internal child.
+            )pbdoc")
         .def("serialize",
             [](const Tree& t) {
                 std::vector<int32_t> variable, left, right;
@@ -1051,9 +1095,24 @@ void bind_tree(py::module_& m) {
                     std::move(mu_arr)
                 );
             },
-            "Serialize the tree into flat node arrays for variable, value, children, and leaf means.")
+            R"pbdoc(
+            Serialize the tree into flat node arrays.
+
+            Returns:
+                Tuple of NumPy arrays (variable, value, left, right, mu). Internal nodes
+                contain split variables and thresholds. Terminal nodes contain terminal mean
+                values and have child indices set to -1.
+            )pbdoc")
         .def("validate", &Tree::validate,
-            "Check tree structure and cached state for consistency.")
+            R"pbdoc(
+            Validate tree topology and cached state.
+
+            Checks root validity, parent-child consistency, terminal/internal node
+            invariants, row-cache dimensions, and free-list consistency.
+
+            Raises:
+                RuntimeError: If any tree invariant is violated.
+            )pbdoc")
 
         .def("test_grow", [](Tree& t, int32_t node_idx, int32_t variable, int32_t split_idx) {
             auto prop = t.propose_grow(node_idx, variable, split_idx);
@@ -1061,26 +1120,92 @@ void bind_tree(py::module_& m) {
             t.apply_grow(*prop);
             return true;
             },
-            "Test function used to test proposal and application of grow moves.")
+            R"pbdoc(
+            Apply a grow proposal for testing.
+
+            Args:
+                node_idx: Terminal node to split.
+                variable: Predictor index for the split.
+                split_idx: Split-position index for the selected predictor.
+
+            Returns:
+                True if the proposal was valid and applied; False if the proposal was
+                rejected as invalid.
+
+            Raises:
+                RuntimeError: If the requested operation violates tree invariants.
+
+            Warning:
+                This method mutates the tree and is intended for backend tests.
+            )pbdoc")
         .def("test_prune", [](Tree& t, int32_t node_idx, double mu) {
             auto prop = t.propose_prune(node_idx, mu);
             if (!prop.has_value()) return false;
             t.apply_prune(*prop);
             return true;
             },
-            "Test function used to test proposal and application of prune moves.")
+            R"pbdoc(
+            Apply a prune proposal for testing.
+
+            Args:
+                node_idx: Internal node to collapse into a terminal node.
+                mu: Terminal-node mean to assign after pruning.
+
+            Returns:
+                True if the proposal was valid and applied; False if the proposal was
+                rejected as invalid.
+
+            Raises:
+                RuntimeError: If the requested operation violates tree invariants.
+
+            Warning:
+                This method mutates the tree and is intended for backend tests.
+            )pbdoc")
         .def("test_change", [](Tree& t, int32_t node_idx, int32_t variable, int32_t split_idx) {
             auto prop = t.propose_change(node_idx, variable, split_idx);
             if (!prop.has_value()) return false;
             t.apply_change(*prop);
             return true;
             },
-            "Test function used to test proposal and application of change moves.")
+            R"pbdoc(
+            Apply a same-shape split-rule change proposal for testing.
+
+            Args:
+                node_idx: Internal node whose split rule should change.
+                variable: New split predictor index.
+                split_idx: New split-position index for the selected predictor.
+
+            Returns:
+                True if the proposal was valid and applied; False if the proposal was
+                rejected as invalid.
+
+            Raises:
+                RuntimeError: If the requested operation violates tree invariants.
+
+            Warning:
+                This method mutates the tree and is intended for backend tests.
+            )pbdoc")
         .def("test_swap", [](Tree& t, int32_t node_idx, int mode) {
             auto prop = t.propose_swap(node_idx, mode);
             if (!prop.has_value()) return false;
             t.apply_swap(*prop);
             return true;
             },
-            "Test function used to test proposal and application of swap moves.");
+            R"pbdoc(
+            Apply a parent-child split-rule swap proposal for testing.
+
+            Args:
+                node_idx: Internal parent node where the swap is attempted.
+                mode: Swap mode used by the backend.
+
+            Returns:
+                True if the proposal was valid and applied; False if the proposal was
+                rejected as invalid.
+
+            Raises:
+                RuntimeError: If the requested operation violates tree invariants.
+
+            Warning:
+                This method mutates the tree and is intended for backend tests.
+            )pbdoc");
 }

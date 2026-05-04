@@ -838,24 +838,65 @@ void BackfittingEngine::test_draw_mu_and_subtract(
 }
 
 void bind_backfitting_engine(py::module_& m) {
-    py::class_<BackfittingEngine>(m, "_BackfittingEngine")
+    py::class_<BackfittingEngine>(m, "_BackfittingEngine",
+        R"pbdoc(
+        Backend engine for Bayesian backfitting over a BART tree ensemble.
+
+        The engine owns the live forest, maintains sorted row caches, performs
+        Metropolis-Hastings tree-structure updates, draws terminal-node means, updates
+        partial residuals, and serializes forests for posterior prediction.
+        )pbdoc")
         .def(
             py::init<
                 BackfittingEngine::DoubleArray,
                 int32_t,
                 uint64_t
             >(),
-            "Create a backfitting engine for a feature matrix and tree ensemble size.",
+            R"pbdoc(
+            Create a backfitting engine for a feature matrix and ensemble size.
+
+            Args:
+                X: Two-dimensional training feature matrix.
+                m: Number of trees in the live forest.
+                seed: Random seed for backend sampling.
+
+            Raises:
+                RuntimeError: If X is not two-dimensional, has non-positive shape, has a
+                    null data pointer, or if m is not positive.
+            )pbdoc",
             py::arg("X"),
             py::arg("m"),
             py::arg("seed") = 0
         )
         .def("initialize_root_forest", &BackfittingEngine::initialize_root_forest,
-            "Initialize all trees as single-node root trees.")
+            R"pbdoc(
+            Initialize the live forest as root-only trees.
+
+            All existing trees are discarded and replaced with m single-node trees sharing
+            the root row-order caches.
+            )pbdoc")
         .def(
             "backfitting_sweep",
             &BackfittingEngine::backfitting_sweep,
-            "Run one full backfitting sweep over all trees.",
+            R"pbdoc(
+            Run one full Bayesian backfitting sweep over all trees.
+
+            For each tree, the current tree contribution is added back to the residuals,
+            a tree-structure proposal is sampled, terminal-node means are redrawn, and the
+            updated tree contribution is subtracted from the residuals.
+
+            Args:
+                residuals: Mutable one-dimensional residual vector.
+                sigma2: Observation variance.
+                sigma_mu2: Prior variance for terminal-node means.
+                alpha: Base tree-splitting prior parameter.
+                beta: Depth penalty for the tree-splitting prior.
+                move_distribution: Probabilities for grow, prune, change, and swap moves.
+
+            Raises:
+                RuntimeError: If residuals has the wrong shape or move_distribution is
+                    invalid.
+            )pbdoc",
             py::arg("residuals"),
             py::arg("sigma2"),
             py::arg("sigma_mu2"),
@@ -866,7 +907,25 @@ void bind_backfitting_engine(py::module_& m) {
         .def(
             "draw_tree",
             &BackfittingEngine::draw_tree,
-            "Propose and possibly accept one structure update for tree j.",
+            R"pbdoc(
+            Propose and possibly accept one structure update for a tree.
+
+            Args:
+                j: Index of the tree to update.
+                residuals: One-dimensional residual vector.
+                sigma2: Observation variance.
+                sigma_mu2: Prior variance for terminal-node means.
+                alpha: Base tree-splitting prior parameter.
+                beta: Depth penalty for the tree-splitting prior.
+                move_distribution: Probabilities for grow, prune, change, and swap moves.
+
+            Returns:
+                True if a proposal was accepted and applied; False otherwise.
+
+            Raises:
+                RuntimeError: If j is out of bounds, residuals has the wrong shape, or
+                    move_distribution is invalid.
+            )pbdoc",
             py::arg("j"),
             py::arg("residuals"),
             py::arg("sigma2"),
@@ -878,37 +937,126 @@ void bind_backfitting_engine(py::module_& m) {
         .def(
             "draw_mu",
             &BackfittingEngine::draw_mu,
-            "Draw new terminal-node means for tree j.",
+            R"pbdoc(
+            Draw terminal-node means for one tree.
+
+            Args:
+                j: Index of the tree to update.
+                residuals: One-dimensional residual vector.
+                sigma2: Observation variance.
+                sigma_mu2: Prior variance for terminal-node means.
+
+            Raises:
+                RuntimeError: If j is out of bounds or residuals has the wrong shape.
+            )pbdoc",
             py::arg("j"),
             py::arg("residuals"),
             py::arg("sigma2"),
             py::arg("sigma_mu2")
         )
         .def("serialize_tree", &BackfittingEngine::serialize_tree, py::arg("j"),
-            "Serialize tree j into flat node arrays.")
+            R"pbdoc(
+            Serialize one tree into flat node arrays.
+
+            Args:
+                j: Index of the tree to serialize.
+
+            Returns:
+                Tuple of NumPy arrays (variable, value, left, right, mu).
+
+            Raises:
+                RuntimeError: If j is out of bounds.
+            )pbdoc")
         .def("serialize_forest", &BackfittingEngine::serialize_forest,
-            "Serialize the full forest into flat arrays.")
+            R"pbdoc(
+            Serialize the full live forest into flat arrays.
+
+            Returns:
+                Tuple of NumPy arrays (variable, value, left, right, mu, tree_offset).
+                The tree_offset array has length m + 1 and delimits each tree's node slice.
+            )pbdoc")
         .def("validate_tree", &BackfittingEngine::validate_tree,
-            "Validate the structure and cached state of tree j.",
+            R"pbdoc(
+            Validate one tree in the live forest.
+
+            Args:
+                j: Index of the tree to validate.
+
+            Raises:
+                RuntimeError: If j is out of bounds or the tree violates structural or cache
+                    invariants.
+            )pbdoc",
             py::arg("j"))
         .def("validate_forest", 
             &BackfittingEngine::validate_forest,
-            "Validate the structure and cached state of the full forest.")
+            R"pbdoc(
+            Validate every tree in the live forest.
+
+            Raises:
+                RuntimeError: If any tree violates structural or cache invariants.
+            )pbdoc")
         .def("n",
             &BackfittingEngine::n,
-            "Return the number of training rows.")
+                        R"pbdoc(
+            Return the number of training rows.
+
+            Returns:
+                Integer row count.
+            )pbdoc")
         .def("p",
             &BackfittingEngine::p,
-            "Return the number of predictor columns.")
+            R"pbdoc(
+            Return the number of predictor columns.
+
+            Returns:
+                Integer predictor count.
+            )pbdoc")
         .def("m",
             &BackfittingEngine::m,
-            "Return the number of trees in the ensemble.")
+            R"pbdoc(
+            Return the number of trees in the live forest.
+
+            Returns:
+                Integer tree count.
+            )pbdoc")
         
-        .def("test_apply_tree_to_residuals", &BackfittingEngine::test_apply_tree_to_residuals,
+        .def("test_apply_tree_to_residuals",
+            &BackfittingEngine::test_apply_tree_to_residuals,
+            R"pbdoc(
+            Apply or remove a tree contribution from residuals for testing.
+
+            Args:
+                j: Index of the tree to apply.
+                residuals: Mutable one-dimensional residual vector.
+                sign: Multiplier for the tree contribution. Use +1 to add the tree
+                    contribution and -1 to subtract it.
+
+            Raises:
+                RuntimeError: If j is out of bounds or residuals has the wrong shape.
+
+            Warning:
+                This method mutates residuals and is intended for backend tests.
+            )pbdoc",
             py::arg("j"),
             py::arg("residuals"),
             py::arg("sign"))
-        .def("test_draw_mu_and_subtract", &BackfittingEngine::test_draw_mu_and_subtract,
+        .def("test_draw_mu_and_subtract",
+            &BackfittingEngine::test_draw_mu_and_subtract,
+            R"pbdoc(
+            Draw terminal-node means and subtract the updated tree contribution.
+
+            Args:
+                j: Index of the tree to update.
+                residuals: Mutable one-dimensional residual vector.
+                sigma2: Observation variance.
+                sigma_mu2: Prior variance for terminal-node means.
+
+            Raises:
+                RuntimeError: If j is out of bounds or residuals has the wrong shape.
+
+            Warning:
+                This method mutates the tree and residuals and is intended for backend tests.
+            )pbdoc",
             py::arg("j"),
             py::arg("residuals"),
             py::arg("sigma2"),
