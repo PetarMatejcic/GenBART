@@ -11,12 +11,12 @@ RECURSIVE              = YES
 INPUT                  = ../src/cpp
 FILE_PATTERNS          = *.hpp *.cpp
 
-EXTRACT_ALL            = YES
+EXTRACT_ALL            = NO
 EXTRACT_PRIVATE        = NO
 EXTRACT_STATIC         = YES
 
-HIDE_UNDOC_MEMBERS     = NO
-HIDE_UNDOC_CLASSES     = NO
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = YES
 
 QUIET                  = NO
 WARN_IF_UNDOCUMENTED   = YES
