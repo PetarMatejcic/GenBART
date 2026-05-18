@@ -7,3 +7,5 @@ timings/
 genbart/profilestats.py
 .vscode/*
 build/*
+docs/_build/
+docs/_doxygen/
