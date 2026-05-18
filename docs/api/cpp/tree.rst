@@ -16,8 +16,6 @@ Class reference
 Related structures
 ------------------
 
-If these structs/classes are documented in your headers, add them here:
-
 .. doxygenstruct:: Node
    :members:
 

@@ -17,8 +17,6 @@ Class reference
 Supporting structures
 ---------------------
 
-If these are documented in your headers, include them:
-
 .. doxygenstruct:: TerminalStat
    :members:
 
