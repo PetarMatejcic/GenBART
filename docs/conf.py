@@ -28,6 +28,7 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinx_autodoc_typehints",
     "sphinx_design",
+    "sphinx.ext.githubpages",
     "myst_parser",
     "breathe"
 ]
@@ -38,7 +39,6 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 autosummary_generate = True
 
 autodoc_default_options = {
-    "members": True,
     "show-inheritance": True,
 }
 

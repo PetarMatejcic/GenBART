@@ -5,9 +5,13 @@ BaseBART
 
 ``BaseBART`` contains shared functionality used by the public estimators.
 
-Most users should use :class:`genbart.reg_bart.RegBart` or
-:class:`genbart.probit_bart.ProbitBart` directly.
+Class
+-----
 
 .. autoclass:: BaseBART
-   :members: variable_importance
    :show-inheritance:
+
+Methods
+-------
+
+.. automethod:: BaseBART.variable_importance

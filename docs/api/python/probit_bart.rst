@@ -3,8 +3,19 @@ ProbitBart
 
 .. currentmodule:: genbart.probit_bart
 
-``ProbitBart`` is the binary classification estimator.
+``ProbitBart`` is the probit BART estimator for binary classification.
+
+Class
+-----
 
 .. autoclass:: ProbitBart
-   :members: fit, predict_probs, predict
    :show-inheritance:
+
+Methods
+-------
+
+.. automethod:: ProbitBart.fit
+
+.. automethod:: ProbitBart.predict_probs
+
+.. automethod:: ProbitBart.predict
