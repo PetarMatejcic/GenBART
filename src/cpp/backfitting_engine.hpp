@@ -25,6 +25,14 @@ struct InternalStat {
     int32_t eta;
 };
 
+/**
+ * @brief Coordinates Bayesian backfitting updates for a BART forest.
+ *
+ * BackfittingEngine owns the live collection of trees used during MCMC. It
+ * updates each tree conditionally on the current partial residuals, computes
+ * Metropolis-Hastings acceptance quantities, draws terminal-node means, and
+ * serializes the live forest for posterior storage.
+ */
 class BackfittingEngine {
 public:
     using DoubleArray = py::array_t<double, py::array::c_style | py::array::forcecast>;

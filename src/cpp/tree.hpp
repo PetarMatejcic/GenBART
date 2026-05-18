@@ -88,6 +88,17 @@ struct SwapProposalLite {
     SameShapeWorkspace workspace;
 };
 
+/**
+ * @brief Mutable regression-tree representation used during BART MCMC.
+ *
+ * Tree stores the topology, split rules, terminal-node means, row membership,
+ * and split caches for one regression tree in the live ensemble. It supports
+ * grow, prune, change, and swap proposals by constructing lightweight proposal
+ * objects first, then applying accepted proposals in place.
+ *
+ * The tree keeps row indices sorted by predictor within each node so that valid
+ * split rules and child row partitions can be computed efficiently.
+ */
 class Tree {
     public:
     Tree(

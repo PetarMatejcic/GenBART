@@ -6,6 +6,14 @@
 
 namespace py = pybind11;
 
+/**
+ * @brief Packed posterior forest representation used for fast prediction.
+ *
+ * PackedForest stores all retained posterior trees in flat arrays. Each tree is
+ * represented by contiguous node slices indexed by ``tree_offset``. This layout
+ * is used after fitting to evaluate posterior draw sums for a single row or a
+ * matrix of rows without keeping the mutable MCMC tree objects alive.
+ */
 class PackedForest {
 public:
     PackedForest(
