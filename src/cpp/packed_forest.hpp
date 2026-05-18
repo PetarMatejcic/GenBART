@@ -16,6 +16,25 @@ namespace py = pybind11;
  */
 class PackedForest {
 public:
+    /**
+     * @brief Construct a packed posterior forest from flat serialized node arrays.
+     *
+     * Stores all posterior tree draws in contiguous arrays so prediction can be
+     * performed without traversing Python objects. Each tree is represented by a
+     * slice of the node arrays, with `tree_offset` marking the start of each tree.
+     *
+     * @param variable Split variable for each node, or -1 for terminal nodes.
+     * @param value Split threshold for each node.
+     * @param left Left-child node index for each node, or -1 for terminal nodes.
+     * @param right Right-child node index for each node, or -1 for terminal nodes.
+     * @param mu Terminal-node mean value for each leaf node.
+     * @param tree_offset Offsets delimiting each serialized tree.
+     * @param n_draws Number of posterior forest draws.
+     * @param m Number of trees per posterior draw.
+     * @param p Number of predictor columns expected at prediction time.
+     *
+     * @throws std::runtime_error If dimensions, offsets, or tree structure are invalid.
+     */
     PackedForest(
         py::array_t<int32_t> variable_,
         py::array_t<double, py::array::c_style | py::array::forcecast> value_,
@@ -28,7 +47,33 @@ public:
         int64_t p_
     );
 
+    /**
+     * @brief Evaluate every posterior forest draw at a single predictor row.
+     *
+     * For each posterior draw, sums the predictions from its `m` trees at `x`.
+     * The returned vector therefore contains one sum-of-trees prediction per
+     * retained posterior sample.
+     *
+     * @param x One-dimensional predictor row of length `p`.
+     *
+     * @return NumPy array of shape `(n_draws,)` containing posterior draw sums.
+     *
+     * @throws std::runtime_error If `x` is not one-dimensional or has wrong length.
+     */
     py::array_t<double> draw_sums_row(py::array_t<double, py::array::c_style | py::array::forcecast> x_in) const;
+    /**
+     * @brief Evaluate every posterior forest draw on a matrix of predictor rows.
+     *
+     * For each posterior draw and each row of `X`, sums the predictions from the
+     * corresponding `m` trees. The output is arranged with posterior draws on the
+     * first axis and input rows on the second axis.
+     *
+     * @param X Two-dimensional predictor matrix with shape `(n_rows, p)`.
+     *
+     * @return NumPy array of shape `(n_draws, n_rows)` containing posterior draw sums.
+     *
+     * @throws std::runtime_error If `X` is not two-dimensional or has wrong column count.
+     */
     py::array_t<double> draw_sums_matrix(py::array_t<double, py::array::c_style | py::array::forcecast> X_in) const;
 
 private:

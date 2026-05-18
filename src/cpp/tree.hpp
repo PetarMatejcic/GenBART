@@ -101,6 +101,18 @@ struct SwapProposalLite {
  */
 class Tree {
     public:
+    /**
+     * @brief Create a single-root regression tree from a feature matrix.
+     *
+     * This Python-facing constructor builds the sorted row-index caches needed by
+     * split proposals, then constructs a tree containing only a root terminal node.
+     *
+     * @param X Two-dimensional feature matrix with shape `(n, p)`.
+     *
+     * @return Tree initialized with one terminal root node.
+     *
+     * @throws std::runtime_error If `X` is not a positive-shape 2D array.
+     */
     Tree(
         const double* X,
         int32_t n,
@@ -108,13 +120,50 @@ class Tree {
         const std::vector<std::vector<int32_t>>& root_rows_by_var
     );
 
+    /**
+     * @brief Return the root node index.
+     *
+     * @return Internal index of the tree root node.
+     */
     int32_t root() const noexcept { return root_; }
     Node& node(int32_t idx);
     const Node& node(int32_t idx) const;
 
+    /**
+     * @brief Return terminal node indices.
+     *
+     * If `growable` is true, returns only terminal nodes that still have at least
+     * one valid splitting rule. Otherwise returns all terminal nodes.
+     *
+     * @param growable Whether to restrict the result to growable terminal nodes.
+     *
+     * @return Vector of terminal node indices.
+     */
     const std::vector<int32_t>& terminal_nodes(bool growable) const;
+    /**
+     * @brief Return all internal node indices.
+     *
+     * Internal nodes are nonterminal nodes with a split rule and two children.
+     *
+     * @return Vector of internal node indices.
+     */
     const std::vector<int32_t>& internal_nodes() const;
+    /**
+     * @brief Return all prunable internal node indices.
+     *
+     * A node is prunable when both of its children are terminal nodes.
+     *
+     * @return Vector of internal node indices eligible for a prune move.
+     */
     const std::vector<int32_t>& prunable_nodes() const;
+    /**
+     * @brief Return all swappable internal node indices.
+     *
+     * A node is swappable when at least one of its children is also internal, so a
+     * parent-child rule swap can be proposed.
+     *
+     * @return Vector of internal node indices eligible for a swap move.
+     */
     const std::vector<int32_t>& swappable_nodes() const;
     
     double split_value_at(
@@ -164,6 +213,14 @@ class Tree {
         std::vector<double>& mu
     ) const;
 
+    /**
+     * @brief Validate tree topology and cached node state.
+     *
+     * Checks root validity, parent-child links, terminal/internal node invariants,
+     * cached row ordering, split-cache sizes, and free-list consistency.
+     *
+     * @throws std::runtime_error If any tree invariant is violated.
+     */
     void validate() const;
 
 private:

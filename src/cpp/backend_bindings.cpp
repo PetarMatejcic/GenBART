@@ -5,6 +5,15 @@
 
 namespace py = pybind11;
 
+/**
+ * @brief Python extension module exposing the GenBART C++ backend.
+ *
+ * Registers the packed posterior forest, low-level tree testing interface, and
+ * backfitting engine classes used by the Python BART estimators.
+ *
+ * @param m pybind11 module object populated with backend bindings.
+ */
+
 PYBIND11_MODULE(_backend, m) {
     m.doc() = R"pbdoc(
                 Compiled backend for BART tree operations and posterior prediction.
