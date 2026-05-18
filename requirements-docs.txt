@@ -1,0 +1,6 @@
+sphinx
+sphinx-autodoc-typehints
+myst-parser
+breathe
+insipid-sphinx-theme
+sphinx-design
