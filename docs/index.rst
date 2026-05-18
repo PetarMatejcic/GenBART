@@ -44,7 +44,7 @@ and a C++ backend.
 
 .. toctree::
    :hidden:
-   :maxdepth: 2
+   :maxdepth: 3
 
    getting_started
    user_guide/index
