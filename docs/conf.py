@@ -27,6 +27,7 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_autodoc_typehints",
+    "sphinx_design",
     "myst_parser",
     "breathe"
 ]
@@ -54,5 +55,7 @@ breathe_default_project = "genbart_cpp"
 
 # -- Options for HTML output -------------------------------------------------
 
-html_theme = 'alabaster'
+html_theme = 'insipid'
+html_permalinks_icon = "§"
 html_static_path = ['_static']
+html_css_files = ["custom.css"]

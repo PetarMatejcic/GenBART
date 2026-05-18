@@ -1,0 +1,122 @@
+/* ================================
+   GenBART custom documentation CSS
+   ================================ */
+
+
+/* Improve main text readability */
+body {
+    line-height: 1.6;
+}
+
+
+/* Keep content from becoming too wide on large screens */
+main,
+.document,
+.body {
+    max-width: 980px;
+}
+
+
+/* Add breathing room between major sections */
+section {
+    margin-bottom: 2rem;
+}
+
+
+/* Make headings a little more spacious */
+h1,
+h2,
+h3,
+h4 {
+    margin-top: 1.6em;
+    margin-bottom: 0.6em;
+}
+
+
+/* Avoid huge top spacing on the first page heading */
+h1:first-child {
+    margin-top: 0;
+}
+
+
+/* Code blocks */
+pre {
+    padding: 1rem;
+    border-radius: 8px;
+    line-height: 1.45;
+    overflow-x: auto;
+}
+
+
+/* Inline code */
+code,
+.literal {
+    padding: 0.08rem 0.22rem;
+    border-radius: 4px;
+}
+
+
+/* Better spacing around API objects */
+dl.py.class,
+dl.py.function,
+dl.py.method,
+dl.cpp.class,
+dl.cpp.function {
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+
+/* Make API signatures stand out without being too loud */
+dt.sig,
+dl.py dt,
+dl.cpp dt {
+    padding: 0.45rem 0.65rem;
+    border-radius: 6px;
+}
+
+
+/* Improve parameter/return field lists */
+dl.field-list {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+}
+
+dl.field-list > dt {
+    font-weight: 600;
+}
+
+
+/* Add spacing between parameters */
+dl.field-list dd {
+    margin-bottom: 0.6rem;
+}
+
+
+/* Sphinx-design cards */
+.sd-card {
+    border-radius: 10px;
+}
+
+.sd-card-title {
+    font-weight: 700;
+}
+
+
+/* Make tables less cramped */
+table.docutils {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+}
+
+table.docutils th,
+table.docutils td {
+    padding: 0.5rem 0.7rem;
+}
+
+
+/* Make admonitions cleaner */
+.admonition {
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+}
