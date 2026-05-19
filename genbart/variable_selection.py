@@ -158,7 +158,7 @@ class BartVariableSelection:
     def __init__(self,
                  model_cls,
                  model_params=None,
-                 n_permutations=100,
+                 n_permutations=20,
                  n_repeats=5,
                  alpha=0.05,
                  method="global_se",
@@ -187,6 +187,45 @@ class BartVariableSelection:
 
         self.random_state = random_state
         self.verbose = verbose
+    
+    @classmethod
+    def from_model(
+        cls,
+        model,
+        *,
+        n_permutations = 20,
+        n_repeats = 5,
+        alpha = 0.05,
+        method = "global_se",
+        random_state = None,
+        n_jobs = 1,
+        verbose = False
+    ):
+        if isinstance(model, type):
+            raise TypeError(
+                "from_model expects model instance, not a model class."
+                "Use the  consructor with model_cls=... for classes."
+            )
+        
+        if not hasattr(model, "get_params") or not callable(model.get_params):
+            raise TypeError("model must implement get_params() so it can be recreated.")
+        
+        model_params = model.get_params()
+
+        if not isinstance(model_params, dict):
+            raise TypeError("model.get:params() must return a dictionary.")
+        
+        return cls(
+             model_cls=type(model),
+            model_params=model_params,
+            n_permutations=n_permutations,
+            n_repeats=n_repeats,
+            alpha=alpha,
+            method=method,
+            random_state=random_state,
+            n_jobs=n_jobs,
+            verbose=verbose,
+        )
 
     def fit(self,
             X,
