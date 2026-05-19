@@ -7,7 +7,7 @@ import genbart.variable_selection as vs
 BartVariableSelector = getattr(
     vs,
     "BartVariableSelector",
-    getattr(vs, "BartVariableSelection", None),
+    getattr(vs, "BartVariableSelector", None),
 )
 
 
