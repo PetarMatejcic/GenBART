@@ -19,3 +19,7 @@ Methods
 .. automethod:: ProbitBart.predict_probs
 
 .. automethod:: ProbitBart.predict
+
+.. automethod:: ProbitBart.evaluate
+
+.. automethod:: ProbitBart.calibration_curve

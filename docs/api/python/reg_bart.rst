@@ -19,3 +19,5 @@ Methods
 .. automethod:: RegBart.predict
 
 .. automethod:: RegBart.marginalize
+
+.. automethod:: RegBart.evaluate
