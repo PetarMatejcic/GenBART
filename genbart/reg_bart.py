@@ -81,6 +81,12 @@ class RegBart(BaseBART):
         self.nu = nu
         self.q = q
 
+    def get_params(self):
+        params_dict = super().get_params()
+        params_dict["nu"] = self.nu
+        params_dict["q"] = self.q
+        return params_dict
+
     def fit(self, X, y):
         """Fit the regression BART model to a feature matrix and continuous response.
 
