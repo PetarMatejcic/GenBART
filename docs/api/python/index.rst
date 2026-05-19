@@ -23,6 +23,12 @@ The Python API contains the public user-facing estimators.
       :link-type: doc
 
       Shared base class utilities.
+   
+   .. grid-item-card:: Variable Selection
+      :link: variable_selection
+      :link-type: doc
+
+      Variable selection workflow.
 
 .. toctree::
    :maxdepth: 1
@@ -31,3 +37,4 @@ The Python API contains the public user-facing estimators.
    reg_bart
    probit_bart
    base_bart
+   variable_selection

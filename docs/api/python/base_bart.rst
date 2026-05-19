@@ -14,4 +14,4 @@ Class
 Methods
 -------
 
-.. automethod:: BaseBART.variable_importance
+.. automethod:: BaseBART.variable_inclusion
