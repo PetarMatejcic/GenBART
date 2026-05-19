@@ -9,6 +9,15 @@ variance-update utilities.
 
 import numpy as np
 from scipy.stats import chi2
+from sklearn.metrics import (
+    mean_squared_error,
+    root_mean_squared_error,
+    mean_absolute_error,
+    median_absolute_error,
+    r2_score,
+    explained_variance_score,
+    max_error,
+)
 from genbart.baseBART import BaseBART
 
 
@@ -271,6 +280,62 @@ class RegBart(BaseBART):
         out["conf_int_low"] = conf_int_low
         out["conf_int_high"] = conf_int_high
         return out
+    
+    def evaluate(self, X, y, central_measure: str = "mean"):
+        """Evaluate regression predictive performance.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix or single observation.
+        y : array-like
+            Observed response values.
+        central_measure : {"mean", "median"}, default="mean"
+            Posterior summary used for point prediction.
+
+        Returns
+        -------
+        out : dict
+            Dictionary of scalar regression metrics.
+        """
+        y_true = np.asarray(y, dtype=float)
+        if y_true.ndim == 0:
+            raise ValueError("y must be a 1D array!")
+        
+        preds = self.predict(X,
+                             central_measure=central_measure,
+                             conf_int=False)
+        y_pred = np.asanyarray(preds["prediction"], dtype=float)
+
+        if y_pred.ndim == 0:
+            y_pred = y_pred.reshape(1)
+
+        if y_pred.ndim != 1:
+            raise ValueError("Predictions must be a 1D array.")
+        if y_pred.shape[0] != y_true.shape[0]:
+            raise ValueError(f"X and y have incompatible lengths: got {y_pred.shape[0]} "
+                             f"predictions and {y_true.shape[0]} labels.")
+
+        residuals = y_true - y_pred
+        return {
+            "n": int(y_true.shape[0]),
+            "central_measure": central_measure,
+
+            "mse": mean_squared_error(y_true, y_pred),
+            "rmse": float(root_mean_squared_error(y_true, y_pred)),
+            "mae": mean_absolute_error(y_true, y_pred),
+            "median_absolute_error": median_absolute_error(y_true, y_pred),
+            "max_error": max_error(y_true, y_pred),
+
+            "r2": r2_score(y_true, y_pred),
+            "explained_variance": explained_variance_score(y_true, y_pred),
+
+            "residual_mean": float(np.mean(residuals)),
+            "residual_std": float(np.std(residuals, ddof=1)) if y_true.shape[0] > 1 else 0.0,
+            "residual_median": float(np.median(residuals)),
+            "residual_min": float(np.min(residuals)),
+            "residual_max": float(np.max(residuals)),
+        }
 
     def _one_mcmc_iteration(self):
         """Run one regression BART MCMC iteration.
