@@ -120,12 +120,12 @@ def test_predict_invalid_central_measure_raises():
         model.predict(X[:3], central_measure="mode")
 
 
-def test_variable_importance_has_correct_shape_and_finite_values():
-    """Return one finite nonnegative importance value per predictor after fitting."""
+def test_variable_inclusion_has_correct_shape_and_finite_values():
+    """Return one finite nonnegative inclusion value per predictor after fitting."""
     X, y = _make_regression_data(n=100, p=4, seed=14)
     model = _fit_small_model(X, y, random_state=14)
 
-    vi = model.variable_importance()
+    vi = model.variable_inclusion()
 
     assert vi.shape == (4,)
     assert np.all(np.isfinite(vi))
@@ -166,7 +166,7 @@ def test_fit_with_constant_y_stays_finite():
 
 
 def test_fit_and_predict_are_reproducible_with_fixed_seed():
-    """Produce identical fitted predictions and variable importance when the same seed is reused."""
+    """Produce identical fitted predictions and variable inclusion when the same seed is reused."""
     X, y = _make_regression_data(n=90, p=4, seed=17)
 
     model1 = RegBart(m=8, n_burn=25, n_samples=35, random_state=999).fit(X, y)
@@ -178,7 +178,7 @@ def test_fit_and_predict_are_reproducible_with_fixed_seed():
     np.testing.assert_allclose(pred1["prediction"], pred2["prediction"])
     np.testing.assert_allclose(pred1["conf_int_low"], pred2["conf_int_low"])
     np.testing.assert_allclose(pred1["conf_int_high"], pred2["conf_int_high"])
-    np.testing.assert_allclose(model1.variable_importance(), model2.variable_importance())
+    np.testing.assert_allclose(model1.variable_inclusion(), model2.variable_inclusion())
 
 
 def test_regbart_fit_continuous_random_friedman_does_not_crash():
@@ -197,7 +197,7 @@ def test_regbart_fit_continuous_random_friedman_does_not_crash():
         random_state=12345,
     ).fit(X, y)
 
-    vi = model.variable_importance()
+    vi = model.variable_inclusion()
     preds = model.predict(X[:8], conf_int=False)["prediction"]
 
     assert vi.shape == (50,)
