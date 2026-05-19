@@ -261,6 +261,9 @@ class BaseBART:
         if self._vi_sum is None:
             raise RuntimeError("Model not fitted.")
         return self._vi_sum / self.n_samples
+    
+    def varible_inclusion_draws(self):
+        return self._vi_draws.copy()
 
     def _backfitting_sweep(self):
         """Run one backend Bayesian backfitting sweep over the live forest.
