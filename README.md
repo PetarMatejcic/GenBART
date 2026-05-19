@@ -10,7 +10,7 @@ GenBART started as part of my master's thesis work, but with the goal of buildin
 - **Regression BART** and **probit BART** interfaces
 - **C++ backfitting engine** for tree updates and posterior sampling
 - Posterior prediction with uncertainty summaries
-- Variable importance and partial dependence utilities
+- Variable inclusion, permutation-based variable selection, and partial dependence utilities
 - Example notebooks with 2D and 3D visualizations
 
 ## Preview
@@ -50,7 +50,7 @@ Since GenBART includes a compiled C++ backend, installation requires a working P
 - `RegBart` for regression
 - `ProbitBart` for binary classification
 - posterior prediction utilities
-- variable importance
+- variable inclusion and permutation-based variable selection
 - partial dependence / effect summaries
 
 ### C++ backend
@@ -83,6 +83,26 @@ model.fit(X, y)
 
 pred = model.predict(X)
 print(pred["prediction"][:5])
+```
+
+## Variable importance and selection
+
+GenBART tracks how often each predictor is used in posterior tree splitting rules. These **variable inclusion proportions** can be used as a measure of variable importance.
+
+```python
+from genbart.variable_selection import BartVariableSelector
+
+selector = BartVariableSelector(
+    model_cls=RegBart,
+    model_params={"m": 20, "n_burn": 200, "n_samples": 500},
+    n_permutations=20,
+    n_repeats=3,
+    random_state=0,
+)
+
+result = selector.fit(X, y)
+
+print(result.selected_features())
 ```
 
 ## Examples
