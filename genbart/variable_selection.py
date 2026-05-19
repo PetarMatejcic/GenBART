@@ -1,6 +1,12 @@
 import numpy as np
 from dataclasses import dataclass, field
 
+__all__ = [
+    "ThresholdResult",
+    "VariableSelectionResult",
+    "BartVariableSelector" 
+]
+
 @dataclass
 class ThresholdResult:
     method: str
@@ -133,7 +139,7 @@ class VariableSelectionResult:
             raise ValueError(f"Unknown method: {method}")
         return self.methods[method]
 
-class BartVariableSelection:
+class BartVariableSelector:
     model_cls: None
     model_params: dict | None
     feature_names: list | None
@@ -365,7 +371,7 @@ class BartVariableSelection:
             y_perm = self._permute_response(y, shuffle_seed)
             perm_vips = np.empty((self.n_repeats, p), dtype=float)
             
-            for r, model_seed in enumerate(model_seeds):
+            for r, model_seed in enumerate(model_seeds[b]):
                 model = self._make_model(int(model_seed))
                 model.fit(X, y_perm)
                 perm_vips[r, :] = model.variable_inclusion()
@@ -405,7 +411,7 @@ class BartVariableSelection:
         perm_model_seeds = rng.integers(
             low=0,
             high=np.iinfo(np.uint32).max,
-            size=self.n_repeats,
+            size=(self.self.n_permutations, self.n_repeats),
             dtype=np.uint32,
         )
 
