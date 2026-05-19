@@ -9,6 +9,18 @@ draws to class probabilities with the standard normal CDF.
 
 import numpy as np
 from scipy.stats import truncnorm, norm
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+    brier_score_loss,
+    log_loss,
+    roc_auc_score,
+    average_precision_score,
+)
 from .baseBART import BaseBART
 
 
@@ -145,29 +157,23 @@ class ProbitBart(BaseBART):
         Notes:
             This method requires a fitted model with a populated ``packed_forest``.
         """
-        data = np.asarray(X)
+        prob_draws = self._predict_prob_draws(X)
         a = 1 - level
         out = {}
 
-        if data.ndim == 1 and self.p > 1:
-            g = self.packed_forest.draw_sums_row(data)
-            probs = norm.cdf(g)
-            out["probs"] = probs.mean()
-            conf_low, conf_high = np.quantile(probs, [a/2.0, 1 - a/2.0])
-            out["conf_int_low"] = conf_low
-            out["conf_int_high"] = conf_high
-            return out
+        probs = prob_draws.mean(axis=0)
+        conf_low, conf_high = np.quantile(prob_draws, [a/2.0, 1 - a/2.0], axis=0)
+
+        if probs.shape[0] == 1:
+            out["probs"] = probs[0]
+            out["conf_int_low"] = conf_low[0]
+            out["conf_int_high"] = conf_high[0]
         else:
-            if data.ndim == 1:
-                data = data.reshape((-1, 1))
-            g = self.packed_forest.draw_sums_matrix(data)
-            probs = norm.cdf(g)
-            out["probs"] = probs.mean(axis=0)
-            conf_low, conf_high = np.quantile(probs,
-                                              [a/2.0, 1 - a/2.0], axis=0)
+            out["probs"] = probs
             out["conf_int_low"] = conf_low
             out["conf_int_high"] = conf_high
-            return out
+
+        return out
 
     def predict(self, X, threshold: float = 0.5):
         """Predict binary class labels from posterior mean class probabilities.
@@ -182,6 +188,182 @@ class ProbitBart(BaseBART):
         """
         probs = self.predict_probs(X)["probs"]
         return probs >= threshold
+    
+    def evaluate(self, X, y, threshold: float = 0.5):
+        """Evaluate binary classification performance.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix or single observation.
+        y : array-like
+            Observed binary labels, encoded as 0 and 1.
+        threshold : float, default=0.5
+            Probability cutoff used to convert predicted probabilities into
+            hard class predictions.
+
+        Returns
+        -------
+        out : dict
+            Dictionary of scalar classification metrics.
+        """
+        y_true = np.asarray(y).astype(int)
+        if y_true.ndim != 1:
+            raise ValueError("y must be a 1D array")
+        if not np.all((y_true == 0) | (y_true == 1)):
+            raise ValueError("y must contain only binary labels 0 and 1.")
+        
+        prob_draws = self._predict_prob_draws(X)
+        probs = prob_draws.mean(axis=0)
+
+        if probs.shape[0] != y_true.shape[0]:
+            raise ValueError(f"X and y have incompatible lengths: got {probs.shape[0]} "
+                             f"predictions and {y_true.shape[0]} labels.")
+        
+        y_pred = (probs >= threshold).astype(int)
+
+        tn, fp, fn, tp = confusion_matrix(y_true,
+                                          y_pred,
+                                          labels=[0, 1]).ravel()
+        
+        out = {
+                "n": int(y_true.shape[0]),
+                "threshold": float(threshold),
+
+                "accuracy": accuracy_score(y_true, y_pred),
+                "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
+                "sensitivity": recall_score(y_true, y_pred, pos_label=1, zero_division=0),
+                "specificity": recall_score(y_true, y_pred, pos_label=0, zero_division=0),
+                "precision": precision_score(y_true, y_pred, pos_label=1, zero_division=0),
+                "f1": f1_score(y_true, y_pred, pos_label=1, zero_division=0),
+
+                "brier_score": brier_score_loss(y_true, probs),
+                "log_loss": log_loss(y_true, probs, labels=[0, 1]),
+
+                "tn": int(tn),
+                "fp": int(fp),
+                "fn": int(fn),
+                "tp": int(tp),
+            }
+
+        if np.unique(y_true).size == 2:
+            out["roc_auc"] = roc_auc_score(y_true, probs)
+            out["average_precision"] = average_precision_score(y_true, probs)
+        else:
+            out["roc_auc"] = np.nan
+            out["average_precision"] = np.nan
+
+        return out
+
+    def calibration_curve(self,
+                          X,
+                          y,
+                          n_bins: int = 10,
+                          strategy: str = "uniform"):
+        """Return calibration-curve data for predicted probabilities.
+
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix or single observation.
+        y : array-like
+            Observed binary labels, encoded as 0 and 1.
+        n_bins : int, default=10
+            Number of probability bins.
+        strategy : {"uniform", "quantile"}, default="uniform"
+            Binning strategy. "uniform" uses equal-width bins on [0, 1].
+            "quantile" uses bins with approximately equal numbers of observations.
+
+        Returns
+        -------
+        out : dict
+            Dictionary containing mean predicted probability, observed event
+            frequency, bin counts, and bin edges.
+        """
+        y_true = np.asarray(y).astype(int)
+        if y_true.ndim != 1:
+            raise ValueError("y must be a 1D array.")
+        if not np.all((y_true == 0) | (y_true == 1)):
+            raise ValueError("y must contain only binary labels 0 and 1.")
+
+        if n_bins <= 0:
+            raise ValueError("n_bins must be positive.")
+
+        prob_draws = self._predict_prob_draws(X)
+        probs = prob_draws.mean(axis=0)
+
+        if probs.shape[0] != y_true.shape[0]:
+            raise ValueError(f"X and y have incompatible lengths: got {probs.shape[0]} "
+                             f"predictions and {y_true.shape[0]} labels.")
+
+        if strategy == "uniform":
+            bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+        elif strategy == "quantile":
+            bin_edges = np.quantile(
+                probs,
+                np.linspace(0.0, 1.0, n_bins + 1)
+            )
+            bin_edges[0] = 0.0
+            bin_edges[-1] = 1.0
+            bin_edges = np.unique(bin_edges)
+
+            if bin_edges.shape[0] < 2:
+                raise ValueError(
+                    "Cannot create quantile bins because all predicted "
+                    "probabilities are identical."
+                )
+        else:
+            raise ValueError("strategy must be either 'uniform' or 'quantile'.")
+
+        bin_ids = np.digitize(probs, bin_edges[1:-1], right=True)
+
+        prob_pred = []
+        prob_true = []
+        bin_count = []
+        bin_left = []
+        bin_right = []
+
+        for b in range(len(bin_edges) - 1):
+            mask = bin_ids == b
+            if not np.any(mask):
+                continue
+
+            prob_pred.append(probs[mask].mean())
+            prob_true.append(y_true[mask].mean())
+            bin_count.append(mask.sum())
+            bin_left.append(bin_edges[b])
+            bin_right.append(bin_edges[b + 1])
+
+        return {
+            "prob_pred": np.asarray(prob_pred),
+            "prob_true": np.asarray(prob_true),
+            "bin_count": np.asarray(bin_count, dtype=int),
+            "bin_left": np.asarray(bin_left),
+            "bin_right": np.asarray(bin_right),
+            "bin_edges": bin_edges,
+            "n_bins": int(n_bins),
+            "strategy": strategy,
+        }
+
+    def _predict_prob_draws(self, X):
+        """Return posterior draws of P(Y = 1 | X).
+
+        Returns
+        -------
+        probs : np.ndarray
+            Array with shape (n_samples, n_observations). Each row is one
+            posterior draw and each column is one observation.
+        """
+        data = np.asarray(X)
+
+        if data.ndim == 1 and self.p > 1:
+            g = self.packed_forest.draw_sums_row(data)
+            return norm.cdf(g).reshape((-1, 1))
+        else:
+            if data.ndim == 1:
+                data = data.reshape((-1, 1))
+            g = self.packed_forest.draw_sums_matrix(data)
+            return norm.cdf(g)
 
     def _one_mcmc_iteration(self):
         """Run one probit BART MCMC iteration.
