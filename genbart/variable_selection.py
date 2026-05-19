@@ -411,7 +411,7 @@ class BartVariableSelector:
         perm_model_seeds = rng.integers(
             low=0,
             high=np.iinfo(np.uint32).max,
-            size=(self.self.n_permutations, self.n_repeats),
+            size=(self.n_permutations, self.n_repeats),
             dtype=np.uint32,
         )
 
