@@ -9,7 +9,7 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "scipy",
-    "sklearn"
+    "scikit-learn"
 ]
 
 [tool.scikit-build]
