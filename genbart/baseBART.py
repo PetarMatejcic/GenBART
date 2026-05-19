@@ -247,7 +247,7 @@ class BaseBART:
     def variable_inclusion(self):
         """Return posterior average variable-usage frequencies.
 
-        Variable importance is computed as the average, across retained posterior
+        Variable inclusion is computed as the average, across retained posterior
         forest draws, of each predictor's share of internal splitting rules.
 
         Returns:
