@@ -53,6 +53,38 @@ class FakeBart:
         return scores / total
 
 
+class FakeBartWithParams:
+    def __init__(
+        self,
+        m=20,
+        n_burn=100,
+        n_samples=200,
+        random_state=0,
+    ):
+        self.m = m
+        self.n_burn = n_burn
+        self.n_samples = n_samples
+        self.random_state = random_state
+
+    def get_params(self):
+        return {
+            "m": self.m,
+            "n_burn": self.n_burn,
+            "n_samples": self.n_samples,
+            "random_state": self.random_state,
+        }
+
+    def fit(self, X, y):
+        self.X_ = np.asarray(X)
+        self.y_ = np.asarray(y)
+        return self
+
+    def variable_inclusion(self):
+        p = self.X_.shape[1]
+        out = np.zeros(p)
+        out[0] = 1.0
+        return out
+
 @pytest.fixture
 def signal_data():
     rng = np.random.default_rng(123)
@@ -527,3 +559,63 @@ def test_compare_methods_contains_all_methods():
     methods = {row["method"] for row in rows}
 
     assert {"local", "global_max", "global_se"}.issubset(methods)
+
+
+def test_from_model_uses_model_class_and_params():
+    model = FakeBartWithParams(
+        m=30,
+        n_burn=50,
+        n_samples=75,
+        random_state=999,
+    )
+
+    selector = BartVariableSelector.from_model(
+        model,
+        n_permutations=5,
+        n_repeats=2,
+        random_state=123,
+    )
+
+    assert selector.model_cls is FakeBartWithParams
+    assert selector.model_params["m"] == 30
+    assert selector.model_params["n_burn"] == 50
+    assert selector.model_params["n_samples"] == 75
+    assert selector.model_params["random_state"] == 999
+
+    assert selector.n_permutations == 5
+    assert selector.n_repeats == 2
+    assert selector.random_state == 123
+
+
+def test_from_model_make_model_overrides_random_state():
+    model = FakeBartWithParams(random_state=999)
+
+    selector = BartVariableSelector.from_model(
+        model,
+        random_state=123,
+    )
+
+    new_model = selector._make_model(seed=42)
+
+    assert isinstance(new_model, FakeBartWithParams)
+    assert new_model.random_state == 42
+
+
+def test_from_model_rejects_model_class():
+    with pytest.raises(TypeError):
+        BartVariableSelector.from_model(FakeBartWithParams)
+
+
+class FakeNoGetParams:
+    pass
+def test_from_model_rejects_model_without_get_params():
+    with pytest.raises(TypeError):
+        BartVariableSelector.from_model(FakeNoGetParams())
+
+
+class FakeBadGetParams:
+    def get_params(self):
+        return ["not", "a", "dict"]
+def test_from_model_rejects_non_dict_get_params():
+    with pytest.raises(TypeError):
+        BartVariableSelector.from_model(FakeBadGetParams())
