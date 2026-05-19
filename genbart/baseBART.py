@@ -108,6 +108,32 @@ class BaseBART:
 
         self.packed_forest = None
         self._vi_sum = None
+        self._vi_draws = None
+
+    def get_params(self):
+        """Return BART model parameters.
+        
+        Returns:
+            A dictionary containing model parameters: m, alpha, beta, k, n_burn, n_samples,
+            move_distribution and random_state.
+        """
+        return {
+            "m": self.m,
+            "alpha": self.alpha,
+            "beta": self.beta,
+            "k": self.k,
+            "n_burn": self.n_burn,
+            "n_samples": self.n_samples,
+            "move_distribution": self.move_distribution,
+            "random_state": self.random_state
+        }
+    
+    def _initialize_fit_state(self):
+        self._init_trees()
+        self._init_common_arrays()
+        self._init_packed_builder()
+        self._init_variable_inclusion()
+
 
     def _init_trees(self):
         """Initialize feature ranges and the backend forest.
@@ -153,6 +179,33 @@ class BaseBART:
         self._packed_tree_offset = [0]
         self._packed_n_trees = 0
 
+    def _init_variable_inclusion(self):
+        self._vi_sum = np.zeros(self.p)
+        self._vi_draws = np.zeros((self.n_samples, self.p))
+
+    def _store_posterior_sample(self, sample: int):
+        variable, value, left, right, mu, tree_offset = self._serialize_forest()
+        self._append_serialized_forest_block(variable,
+                                                value,
+                                                left,
+                                                right,
+                                                mu,
+                                                tree_offset)
+        self._update_variable_inclusion(sample, variable)
+
+    def _update_variable_inclusion(self, sample: int, variable):
+        mask = variable >= 0
+        variable_counts = np.bincount(variable[mask], minlength=self.p)
+        variable_total = int(mask.sum())
+
+        if variable_total == 0:
+            vi_draw = np.zeros(self.p)
+        else:
+            vi_draw = variable_counts / variable_total
+        
+        self._vi_draws[sample] = vi_draw
+        self._vi_sum += vi_draw
+
     def _finalize_packed_forest(self):
         """Build the immutable packed forest from serialized posterior draws.
 
@@ -191,7 +244,7 @@ class BaseBART:
         del self._packed_tree_offset
         del self._packed_n_trees
 
-    def variable_importance(self):
+    def variable_inclusion(self):
         """Return posterior average variable-usage frequencies.
 
         Variable importance is computed as the average, across retained posterior
@@ -205,6 +258,8 @@ class BaseBART:
             Subclasses are expected to accumulate ``_vi_sum`` during fitting. This
             method should be called only after a successful fit.
         """
+        if self._vi_sum is None:
+            raise RuntimeError("Model not fitted.")
         return self._vi_sum / self.n_samples
 
     def _backfitting_sweep(self):

@@ -105,10 +105,7 @@ class ProbitBart(BaseBART):
         z = truncnorm(a=0, b=np.inf).rvs(self.n)
         self.y_work = np.where(self.y_obs == 1, z, -z)
 
-        self._init_trees()
-        self._init_common_arrays()
-        self._init_packed_builder()
-        self._vi_sum = np.zeros(self.p)
+        self._initialize_fit_state()
 
         self.sigma2 = 1.0
         self.sigma_mu2 = (3.0 / (self.k * np.sqrt(self.m))) ** 2
@@ -116,22 +113,10 @@ class ProbitBart(BaseBART):
         for _ in range(self.n_burn):
             self._one_mcmc_iteration()
 
-        for _ in range(self.n_samples):
+        for sample_idx in range(self.n_samples):
             self._one_mcmc_iteration()
-
-            variable, value, left, right, mu, tree_offset = self._serialize_forest()
-            self._append_serialized_forest_block(variable,
-                                                 value,
-                                                 left,
-                                                 right,
-                                                 mu,
-                                                 tree_offset)
-
-            mask = variable >= 0
-            if np.any(mask):
-                variable_counts = np.bincount(variable[mask], minlength=self.p)
-                variable_total = int(mask.sum())
-                self._vi_sum += variable_counts / variable_total
+            self._store_posterior_sample(sample_idx)
+        
         self._finalize_packed_forest()
         return self
 
