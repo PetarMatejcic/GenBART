@@ -186,14 +186,14 @@ def build_result_from_arrays(real_vips, null_vips, feature_names=None, quantile=
     )
 
     selector.feature_names = list(feature_names)
-    selector.real_vips = real_vips
-    selector.real_vips_repeats = real_vips.reshape(1, -1)
-    selector.real_vips_sd = np.zeros_like(real_vips)
-    selector.null_vips = null_vips
+    selector.real_vips_ = real_vips
+    selector.real_vips_repeats_ = real_vips.reshape(1, -1)
+    selector.real_vips_sd_ = np.zeros_like(real_vips)
+    selector.null_vips_ = null_vips
 
     # Optional fields, in case your result builder uses cached summaries.
-    selector.null_vips_mean = null_vips.mean(axis=0)
-    selector.null_vips_sd = (
+    selector.null_vips_mean_ = null_vips.mean(axis=0)
+    selector.null_vips_sd_ = (
         null_vips.std(axis=0, ddof=1)
         if null_vips.shape[0] > 1
         else np.zeros(null_vips.shape[1])

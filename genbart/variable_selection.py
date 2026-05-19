@@ -145,15 +145,15 @@ class BartVariableSelection:
     n_jobs: int
     verbose: bool
 
-    real_vips_repeats: np.ndarray
-    real_vips: np.ndarray
-    real_vips_sd: np.ndarray
+    real_vips_repeats_: np.ndarray
+    real_vips_: np.ndarray
+    real_vips_sd_: np.ndarray
 
-    null_vips: np.ndarray
-    null_vips_mean: np.ndarray
-    null_vips_std: np.ndarray
+    null_vips_: np.ndarray
+    null_vips_mean_: np.ndarray
+    null_vips_std_: np.ndarray
 
-    result: VariableSelectionResult
+    result_: VariableSelectionResult
 
     def __init__(self,
                  model_cls,
@@ -174,7 +174,7 @@ class BartVariableSelection:
             raise ValueError("n_permutations must be positive.")
         self.n_permutations = n_permutations
         if n_repeats <= 0:
-            raise ValueError("n_repeat must be positive.")
+            raise ValueError("n_repeats must be positive.")
         self.n_repeats = n_repeats
 
         if not 0.0 < alpha < 1.0:
@@ -186,6 +186,7 @@ class BartVariableSelection:
         self.method = method
 
         self.random_state = random_state
+        self.n_jobs = n_jobs
         self.verbose = verbose
     
     @classmethod
@@ -204,7 +205,7 @@ class BartVariableSelection:
         if isinstance(model, type):
             raise TypeError(
                 "from_model expects model instance, not a model class."
-                "Use the  consructor with model_cls=... for classes."
+                "Use the  constructor with model_cls=... for classes."
             )
         
         if not hasattr(model, "get_params") or not callable(model.get_params):
@@ -213,7 +214,7 @@ class BartVariableSelection:
         model_params = model.get_params()
 
         if not isinstance(model_params, dict):
-            raise TypeError("model.get:params() must return a dictionary.")
+            raise TypeError("model.get_params() must return a dictionary.")
         
         return cls(
              model_cls=type(model),
@@ -231,10 +232,11 @@ class BartVariableSelection:
             X,
             y,
             feature_names = None):
+        data_X = X
         X, y = self._validate_xy(X, y)
-        n, p = X.shape
+        _, p = X.shape
 
-        self.feature_names = self._get_feature_names(X, feature_names, p)
+        self.feature_names = self._get_feature_names(data_X, feature_names, p)
         
         real_model_seeds, perm_model_seeds, perm_shuffle_seeds = self._make_seeds()
 
@@ -242,9 +244,9 @@ class BartVariableSelection:
 
         self._fit_null_distribution(X, y, perm_model_seeds, perm_shuffle_seeds)
 
-        self.result = self._build_result()
+        self.result_ = self._build_result()
         
-        return self.result
+        return self.result_
     
     def _build_result(self):
         methods = {
@@ -255,10 +257,10 @@ class BartVariableSelection:
 
         result = VariableSelectionResult(
             feature_names=self.feature_names,
-            real_vips=self.real_vips,
-            real_vips_repeats=self.real_vips_repeats,
-            real_vips_sd=self.real_vips_sd,
-            null_vips=self.null_vips,
+            real_vips=self.real_vips_,
+            real_vips_repeats=self.real_vips_repeats_,
+            real_vips_sd=self.real_vips_sd_,
+            null_vips=self.null_vips_,
             methods=methods,
             default_method=self.method,
         )
@@ -266,13 +268,13 @@ class BartVariableSelection:
         return result
 
     def _local_result(self):
-        thresholds = np.quantile(self.null_vips, 1 - self.alpha, axis=0)
-        selected = self.real_vips > thresholds
+        thresholds = np.quantile(self.null_vips_, 1 - self.alpha, axis=0)
+        selected = self.real_vips_ > thresholds
 
         return ThresholdResult(
             method="local",
             feature_names=self.feature_names,
-            real_vips=self.real_vips,
+            real_vips=self.real_vips_,
             thresholds=thresholds,
             selected=selected,
             quantile=1-self.alpha,
@@ -280,15 +282,15 @@ class BartVariableSelection:
         )
     
     def _global_max_result(self):
-        max_null = np.max(self.null_vips, axis=1)
+        max_null = np.max(self.null_vips_, axis=1)
         threshold = np.quantile(max_null, 1 - self.alpha)
-        thresholds = np.full_like(self.real_vips, threshold, dtype=float)
-        selected = self.real_vips > thresholds
+        thresholds = np.full_like(self.real_vips_, threshold, dtype=float)
+        selected = self.real_vips_ > thresholds
 
         return ThresholdResult(
             method="global_max",
             feature_names=self.feature_names,
-            real_vips=self.real_vips,
+            real_vips=self.real_vips_,
             thresholds=thresholds,
             selected=selected,
             quantile=1-self.alpha,
@@ -299,27 +301,27 @@ class BartVariableSelection:
         )
         
     def _global_se_result(self):
-        null_mean = self.null_vips.mean(axis=0)
+        null_mean = self.null_vips_.mean(axis=0)
 
-        if self.null_vips.shape[0] > 1:
-            null_sd = self.null_vips.std(axis=0, ddof=1)
+        if self.null_vips_.shape[0] > 1:
+            null_sd = self.null_vips_.std(axis=0, ddof=1)
         else:
-            null_sd = np.zeros(self.null_vips.shape[1])
+            null_sd = np.zeros(self.null_vips_.shape[1])
 
         safe_sd = null_sd.copy()
         safe_sd[safe_sd == 0.0] = 1.0
 
-        standardized = (self.null_vips - null_mean) / safe_sd
+        standardized = (self.null_vips_ - null_mean) / safe_sd
         max_standardized = np.max(standardized, axis=1)
 
         global_se = np.quantile(max_standardized, 1 - self.alpha)
         thresholds = null_mean + global_se * null_sd
-        selected = self.real_vips > thresholds
+        selected = self.real_vips_ > thresholds
 
         return ThresholdResult(
             method="global_se",
             feature_names=self.feature_names,
-            real_vips=self.real_vips,
+            real_vips=self.real_vips_,
             thresholds=thresholds,
             selected=selected,
             quantile=1-self.alpha,
@@ -345,12 +347,12 @@ class BartVariableSelection:
             vip = model.variable_inclusion()
             real_vips_repeats[r, :] = vip
         
-        self.real_vips_repeats = real_vips_repeats
-        self.real_vips = real_vips_repeats.mean(axis=0)
+        self.real_vips_repeats_ = real_vips_repeats
+        self.real_vips_ = real_vips_repeats.mean(axis=0)
         if self.n_repeats > 1:
-            self.real_vips_sd = real_vips_repeats.std(axis=0, ddof=1)
+            self.real_vips_sd_ = real_vips_repeats.std(axis=0, ddof=1)
         else:
-            self.real_vips_sd = np.zeros(p)
+            self.real_vips_sd_ = np.zeros(p)
 
     def _fit_null_distribution(self, X, y, model_seeds, shuffle_seeds):
         p = X.shape[1]
@@ -370,32 +372,20 @@ class BartVariableSelection:
 
             null_vips[b, :] = perm_vips.mean(axis=0)
         
-        self.null_vips = null_vips
-        self.null_vips_mean = null_vips.mean(axis=0)
+        self.null_vips_ = null_vips
+        self.null_vips_mean_ = null_vips.mean(axis=0)
         if self.n_permutations > 1:
-            self.null_vips_std = null_vips.std(axis=0, ddof=1)
+            self.null_vips_std_ = null_vips.std(axis=0, ddof=1)
         else:
-            self.null_vips_std = np.zeros(p)
-
-    def _global_se_threshold(self, quantile: float):
-        safe_std = self.null_vips_std.copy()
-        safe_std[safe_std == 0.0] == 1.0
-
-        standardized = (self.null_vips - self.null_vips_mean) / safe_std
-        max_standardized = np.max(standardized, axis=1)
-
-        C = np.quantile(max_standardized, quantile)
-        thresholds = self.null_vips_mean + C * self.null_vips_std
-
-        return thresholds, C
+            self.null_vips_std_ = np.zeros(p)
 
     def _permute_response(self, y: np.ndarray, seed: int):
         rng = np.random.default_rng(seed)
         return rng.permutation(y)
 
     def _is_fitted(self):
-        if not hasattr(self, "real_vips"):
-            raise RuntimeError("BartVariableSeleciton is not fitted.")
+        if not hasattr(self, "result_"):
+            raise RuntimeError("BartVariableSelection is not fitted.")
         
     def _make_model(self, seed):
         params = dict(self.model_params)
