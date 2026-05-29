@@ -231,18 +231,19 @@ class RegBart(BaseBART):
             grid = np.linspace(self.X[:, variable].min(),
                             self.X[:, variable].max(),
                             grid_samples)
-            evaluation_X = self.X.copy()
+            average_X = self.X.mean(axis=0)
             for i, val in enumerate(grid):
-                evaluation_X[:, variable] = val
-                preds = self.predict(evaluation_X,
-                                     central_measure=central_measure,
-                                     conf_int=False)["prediction"]
-                part_dep_preds[i] = preds.mean()
-                part_dep_low[i] = np.quantile(preds, alpha/2.0)
-                part_dep_high[i] = np.quantile(preds, 1 - alpha/2.0)
+                print(average_X.shape)
+                print(val.shape)
+                average_X[variable] = val
+                preds = self.predict(average_X,
+                                     central_measure=central_measure)
+                part_dep_preds[i] = preds["prediction"]
+                part_dep_low[i] = preds["conf_int_low"]
+                part_dep_high[i] = preds["conf_int_high"]
 
         return {
-            "predictions": part_dep_preds,
+            "prediction": part_dep_preds,
             "conf_int_low": part_dep_low,
             "conf_int_high": part_dep_high
         }
