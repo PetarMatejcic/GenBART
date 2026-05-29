@@ -216,61 +216,38 @@ class RegBart(BaseBART):
                 out["conf_int_high"] = self._inverse_transform_y(high_ints)
             return out
 
-    def marginalize(self,
-                    variable: int,
-                    grid,
-                    sampling_size: int = 100,
-                    level=0.9):
-        """Approximate a one-variable partial dependence effect over a supplied grid.
+    def partial_dependence(self,
+                           variable: int | tuple,
+                           grid_samples = 100,
+                           central_measure = "mean",
+                           level = 0.9):
+        alpha = 1 - level
+        
+        part_dep_preds = np.empty(grid_samples)
+        part_dep_low = np.empty(grid_samples)
+        part_dep_high = np.empty(grid_samples)
 
-        For each value in ``grid``, this method draws random covariate combinations
-        uniformly over the observed feature ranges, fixes the selected variable to the
-        grid value, predicts for the sampled rows, and summarizes the resulting
-        predictions. This provides a simulation-based marginalization over the remaining
-        predictors.
+        if isinstance(variable, int):
+            grid = np.linspace(self.X[:, variable].min(),
+                            self.X[:, variable].max(),
+                            grid_samples)
+            evaluation_X = self.X.copy()
+            for i, val in enumerate(grid):
+                evaluation_X[:, variable] = val
+                preds = self.predict(evaluation_X,
+                                     central_measure=central_measure,
+                                     conf_int=False)["prediction"]
+                part_dep_preds[i] = preds.mean()
+                part_dep_low[i] = np.quantile(preds, alpha/2.0)
+                part_dep_high[i] = np.quantile(preds, 1 - alpha/2.0)
 
-        Args:
-            variable: Zero-based index of the predictor to vary.
-            grid: One-dimensional array of values at which to evaluate the selected
-                predictor.
-            sampling_size: Number of random covariate combinations to sample for each
-                grid value.
-            level: Central interval level for the empirical distribution of marginalized
-                predictions.
+        return {
+            "predictions": part_dep_preds,
+            "conf_int_low": part_dep_low,
+            "conf_int_high": part_dep_high
+        }
 
-        Returns:
-            A dictionary with ``"prediction"``, ``"conf_int_low"``, and
-            ``"conf_int_high"``, each a NumPy array with length ``grid.shape[0]``.
 
-        Notes:
-            Random covariate draws use NumPy's global random state rather than the
-            estimator's seeded generator.
-        """
-        lows = [ev[0] for ev in self.extreme_values]
-        highs = [ev[1] for ev in self.extreme_values]
-
-        sample = np.random.uniform(low=lows,
-                                   high=highs,
-                                   size=(sampling_size, self.p))
-
-        prediction = np.empty(grid.shape[0])
-        conf_int_low = np.empty(grid.shape[0])
-        conf_int_high = np.empty(grid.shape[0])
-        a = 1 - level
-
-        for i in range(grid.shape[0]):
-            sample[:, variable] = np.full(sampling_size, grid[i])
-
-            values = self.predict(sample, conf_int=False)
-            conf_int = np.quantile(values["prediction"], [a/2.0, 1 - a/2.0])
-            prediction[i] = values["prediction"].mean()
-            conf_int_low[i] = conf_int[0]
-            conf_int_high[i] = conf_int[1]
-        out = {}
-        out["prediction"] = prediction
-        out["conf_int_low"] = conf_int_low
-        out["conf_int_high"] = conf_int_high
-        return out
     
     def evaluate(self, X, y, central_measure: str = "mean"):
         """Evaluate regression predictive performance.
