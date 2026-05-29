@@ -221,7 +221,43 @@ class RegBart(BaseBART):
                            grid_samples = 100,
                            central_measure = "mean",
                            level = 0.9):
-        
+        """Compute a one-variable mean-reference prediction curve.
+
+        For a selected predictor, this method constructs an evenly spaced grid over the
+        observed training range of that predictor. At each grid value, all other
+        predictors are fixed to their training-sample means, the fitted BART model is
+        evaluated at the resulting reference row, and the posterior prediction summary
+        and credible interval are stored.
+
+        Parameters
+        ----------
+        variable : int or tuple
+            Predictor to vary. Currently only an integer column index is implemented.
+            Tuple input is reserved for future multi-variable effect surfaces.
+        grid_samples : int, default=100
+            Number of evenly spaced grid values between the observed minimum and maximum
+            of the selected predictor.
+        central_measure : {"mean", "median"}, default="mean"
+            Posterior summary passed to ``predict`` for the point prediction.
+        level : float, default=0.9
+            Credible interval level passed to ``predict``.
+
+        Returns
+        -------
+        dict
+            Dictionary with three arrays, each of length ``grid_samples``:
+
+            - ``"prediction"``: point prediction at each grid value.
+            - ``"conf_int_low"``: lower credible interval bound.
+            - ``"conf_int_high"``: upper credible interval bound.
+
+        Notes
+        -----
+        This is a mean-reference curve, not classical partial dependence. Classical
+        partial dependence averages predictions over the observed training rows after
+        replacing the selected variable by each grid value. Here, the complement
+        variables are fixed to their column means instead.
+        """
         part_dep_preds = np.empty(grid_samples)
         part_dep_low = np.empty(grid_samples)
         part_dep_high = np.empty(grid_samples)
@@ -247,8 +283,6 @@ class RegBart(BaseBART):
             "conf_int_low": part_dep_low,
             "conf_int_high": part_dep_high
         }
-
-
     
     def evaluate(self, X, y, central_measure: str = "mean"):
         """Evaluate regression predictive performance.

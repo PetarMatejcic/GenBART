@@ -20,6 +20,8 @@ Methods
 
 .. automethod:: ProbitBart.predict
 
-.. automethod:: ProbitBart.evaluate
+.. automethod:: ProbitBart.partial_dependence
 
 .. automethod:: ProbitBart.calibration_curve
+
+.. automethod:: ProbitBart.evaluate

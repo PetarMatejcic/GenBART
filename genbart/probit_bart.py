@@ -179,6 +179,48 @@ class ProbitBart(BaseBART):
                            grid_samples = 100,
                            central_measure = "mean",
                            level = 0.9):
+        """Compute a one-variable mean-reference probability curve.
+
+        For a selected predictor, this method constructs an evenly spaced grid over the
+        observed training range of that predictor. At each grid value, all other
+        predictors are fixed to their training-sample means, the fitted probit BART model
+        is evaluated at the resulting reference row, and the posterior class-probability
+        summary and credible interval are stored.
+
+        Parameters
+        ----------
+        variable : int or tuple
+            Predictor to vary. Currently only an integer column index is implemented.
+            Tuple input is reserved for future multi-variable effect surfaces.
+        grid_samples : int, default=100
+            Number of evenly spaced grid values between the observed minimum and maximum
+            of the selected predictor.
+        central_measure : {"mean", "median"}, default="mean"
+            Reserved for API consistency with regression BART. Currently unused because
+            ``predict_probs`` returns the posterior mean probability.
+        level : float, default=0.9
+            Credible interval level passed to ``predict_probs``.
+
+        Returns
+        -------
+        dict
+            Dictionary with three arrays, each of length ``grid_samples``:
+
+            - ``"prediction"``: posterior mean probability at each grid value.
+            - ``"conf_int_low"``: lower credible interval bound for the probability.
+            - ``"conf_int_high"``: upper credible interval bound for the probability.
+
+        Notes
+        -----
+        This is a mean-reference probability curve, not classical partial dependence.
+        Classical partial dependence averages predictions over the observed training rows
+        after replacing the selected variable by each grid value. Here, the complement
+        variables are fixed to their column means instead.
+
+        For clarity, consider renaming the returned ``"prediction"`` key to ``"probs"``
+        or renaming the method to something like ``mean_effect`` or
+        ``mean_reference_curve``.
+        """
         alpha = 1 - level
         part_dep_preds = np.empty(grid_samples)
         part_dep_low = np.empty(grid_samples)
