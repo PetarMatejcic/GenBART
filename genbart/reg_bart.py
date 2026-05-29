@@ -221,7 +221,6 @@ class RegBart(BaseBART):
                            grid_samples = 100,
                            central_measure = "mean",
                            level = 0.9):
-        alpha = 1 - level
         
         part_dep_preds = np.empty(grid_samples)
         part_dep_low = np.empty(grid_samples)
@@ -237,7 +236,8 @@ class RegBart(BaseBART):
                 print(val.shape)
                 average_X[variable] = val
                 preds = self.predict(average_X,
-                                     central_measure=central_measure)
+                                     central_measure=central_measure,
+                                     level=level)
                 part_dep_preds[i] = preds["prediction"]
                 part_dep_low[i] = preds["conf_int_low"]
                 part_dep_high[i] = preds["conf_int_high"]

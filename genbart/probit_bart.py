@@ -173,7 +173,36 @@ class ProbitBart(BaseBART):
         """
         probs = self.predict_probs(X)["probs"]
         return probs >= threshold
-    
+
+    def partial_dependence(self,
+                           variable: int | tuple,
+                           grid_samples = 100,
+                           central_measure = "mean",
+                           level = 0.9):
+        alpha = 1 - level
+        part_dep_preds = np.empty(grid_samples)
+        part_dep_low = np.empty(grid_samples)
+        part_dep_high = np.empty(grid_samples)
+
+        if isinstance(variable, int):
+            grid = np.linspace(self.X[:, variable].min(),
+                            self.X[:, variable].max(),
+                            grid_samples)
+            average_X = self.X.mean(axis=0)
+            for i, val in enumerate(grid):
+                average_X[variable] = val
+                preds = self.predict_probs(average_X,
+                                           level=level)
+                part_dep_preds[i] = preds["probs"]
+                part_dep_low[i] = preds["conf_int_low"]
+                part_dep_high[i] = preds["conf_int_high"]
+
+        return {
+            "prediction": part_dep_preds,
+            "conf_int_low": part_dep_low,
+            "conf_int_high": part_dep_high
+        }
+
     def evaluate(self, X, y, threshold: float = 0.5):
         """Evaluate binary classification performance.
 
