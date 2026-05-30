@@ -179,7 +179,9 @@ class BartVariableSelector:
                 print(f"Fitting observed-response BART "
                       f"{repeat_id + 1}/{self.n_repeats}")
 
-            model = make_model(self.model_cls, self.model_params, seed)
+            model = make_model(self.model_cls,
+                               self.model_params,
+                               random_state=seed)
             model.fit(X, y)
 
             importance_repeats[repeat_id, :] = self._extract_importance(model,
@@ -217,7 +219,9 @@ class BartVariableSelector:
                                               dtype=float)
 
             for repeat_id, model_seed in enumerate(model_seeds[permutation_id]):
-                model = make_model(self.model_cls, self.model_params, model_seed)
+                model = make_model(self.model_cls,
+                                   self.model_params,
+                                   random_state=model_seed)
                 model.fit(X, y_perm)
 
                 permutation_importance[repeat_id, :] = self._extract_importance(model,
