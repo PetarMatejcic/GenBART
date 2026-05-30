@@ -257,6 +257,6 @@ class PredictiveSelectionResult:
             "min_mean_degradation": float(self.min_mean_degradation),
             "baseline_loss_mean": float(self.baseline_loss_mean),
             "n_repeats": int(self.n_repeats),
-            "n_permutation_repeats": int(self.n_permutation_repeats),
+            "n_permutations": int(self.n_permutations),
             "use_posterior_draws": bool(self.use_posterior_draws),
         }

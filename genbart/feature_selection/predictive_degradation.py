@@ -286,8 +286,8 @@ class BartPredictiveSelector:
         if X.ndim == 1:
             X = X.reshape((-1, 1))
 
-        if not hasattr(model, "posterior_draws"):
-            raise TypeError("model must implement posterior_draws(X).")
+        if not hasattr(model, "posterior_sample_draws"):
+            raise TypeError("model must implement posterior_sample_draws(X).")
 
         draws = self._as_2d_draws(model.posterior_sample_draws(X))
 
