@@ -109,6 +109,8 @@ class BaseBART:
         self.packed_forest = None
         self._vi_sum = None
         self._vi_draws = None
+        self._logml_vi_sum = None
+        self._logml_vi_draws = None
 
     def get_params(self):
         """Return BART model parameters.
@@ -182,6 +184,8 @@ class BaseBART:
     def _init_variable_inclusion(self):
         self._vi_sum = np.zeros(self.p)
         self._vi_draws = np.zeros((self.n_samples, self.p))
+        self._logml_vi_sum = np.zeros(self.p)
+        self._logml_vi_draws = np.zeros((self.n_samples, self.p))
 
     def _store_posterior_sample(self, sample: int):
         variable, value, left, right, mu, tree_offset = self._serialize_forest()
@@ -191,20 +195,29 @@ class BaseBART:
                                                 right,
                                                 mu,
                                                 tree_offset)
-        self._update_variable_inclusion(sample, variable)
+        self._store_variable_inclusion(sample)
 
-    def _update_variable_inclusion(self, sample: int, variable):
-        mask = variable >= 0
-        variable_counts = np.bincount(variable[mask], minlength=self.p)
-        variable_total = int(mask.sum())
+    def _store_variable_inclusion(self, sample: int):
+        raw_vi, logml_vi = self.engine.variable_inclusion(self.residuals,
+                                                             self.sigma2,
+                                                             self.sigma_mu2)
+        raw_vi = np.asarray(raw_vi)
+        logml_vi = np.asarray(logml_vi)
 
-        if variable_total == 0:
-            vi_draw = np.zeros(self.p)
-        else:
-            vi_draw = variable_counts / variable_total
+        if raw_vi.shape != (self.p, ):
+            raise RuntimeError(
+                f"raw_vi has shape {raw_vi.shape}, expected {(self.p, )}"
+            )
+        if logml_vi.shape != (self.p, ):
+            raise RuntimeError(
+                f"logml_vi has shape {logml_vi.shape}, expected {(self.p, )}"
+            )
         
-        self._vi_draws[sample] = vi_draw
-        self._vi_sum += vi_draw
+        self._vi_draws[sample] = raw_vi
+        self._vi_sum += raw_vi
+        self._logml_vi_draws[sample] = logml_vi
+        self._logml_vi_sum += logml_vi
+
 
     def _finalize_packed_forest(self):
         """Build the immutable packed forest from serialized posterior draws.
@@ -244,26 +257,48 @@ class BaseBART:
         del self._packed_tree_offset
         del self._packed_n_trees
 
-    def variable_inclusion(self):
+    def variable_inclusion(self, kind: str = "raw"):
         """Return posterior average variable-usage frequencies.
 
-        Variable inclusion is computed as the average, across retained posterior
-        forest draws, of each predictor's share of internal splitting rules.
+        Parameters
+        ----------
+        kind : {"raw", "logml_weighted"}, default="raw"
+            Importance definition to return.
 
-        Returns:
-            A one-dimensional NumPy array of length ``p``. Entry ``j`` is the posterior
-            mean fraction of splitting rules that used predictor ``j``.
+            "raw" returns standard split-count inclusion proportions.
+            "logml_weighted" returns subtree-collapse log marginal likelihood
+            weighted inclusion proportions.
 
-        Notes:
-            Subclasses are expected to accumulate ``_vi_sum`` during fitting. This
-            method should be called only after a successful fit.
+        Returns
+        -------
+        np.ndarray
+            One-dimensional array of length p.
         """
         if self._vi_sum is None:
             raise RuntimeError("Model not fitted.")
-        return self._vi_sum / self.n_samples
+
+        if kind == "raw":
+            return self._vi_sum / self.n_samples
+
+        if kind == "logml":
+            return self._logml_vi_sum / self.n_samples
+
+        raise ValueError("kind must be 'raw' or 'logml'.")
     
-    def varible_inclusion_draws(self):
-        return self._vi_draws.copy()
+
+    def variable_inclusion_draws(self, kind: str = "raw"):
+        """Return posterior draw-level variable inclusion values."""
+        if self._vi_draws is None:
+            raise RuntimeError("Model not fitted.")
+
+        if kind == "raw":
+            return self._vi_draws.copy()
+
+        if kind == "logml":
+            return self._logml_vi_draws.copy()
+
+        raise ValueError("kind must be 'raw' or 'logml'.")
+
 
     def _backfitting_sweep(self):
         """Run one backend Bayesian backfitting sweep over the live forest.
