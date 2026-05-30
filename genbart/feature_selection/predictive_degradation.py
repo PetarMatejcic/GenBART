@@ -279,20 +279,23 @@ class BartPredictiveSelector:
         self._check_is_fitted()
         return self.result_.summary()
 
-    def _prediction_draws(self, model, X):
+    def _prediction_draws(self, model: Any, X: np.ndarray) -> np.ndarray:
+        """Return prediction draws with shape (n_draws, n_observations)."""
+        X = np.asarray(X)
+
+        if X.ndim == 1:
+            X = X.reshape((-1, 1))
+
+        if not hasattr(model, "posterior_draws"):
+            raise TypeError("model must implement posterior_draws(X).")
+
+        draws = self._as_2d_draws(model.posterior_sample_draws(X))
+
         if self.use_posterior_draws:
-            if not hasattr(model, "posterior_sample_draws"):
-                raise TypeError(
-                    "use_posterior_draws=True requires a model with posterior_draws(X)."
-                )
-            return self._as_2d_draws(model.posterior_sample_draws(X))
+            return draws
 
-        if self.task == "classification":
-            probs = model.predict_probs(X)["probs"]
-            return self._as_point_prediction_draws(probs)
-
-        pred = model.predict(X, conf_int=False)["prediction"]
-        return self._as_point_prediction_draws(pred)
+        # Use posterior mean as a single prediction draw.
+        return draws.mean(axis=0).reshape(1, -1)
 
     def _loss_per_draw(self, y: np.ndarray, pred_draws: np.ndarray) -> np.ndarray:
         """Compute predictive loss separately for each posterior draw."""
