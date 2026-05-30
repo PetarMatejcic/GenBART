@@ -70,7 +70,7 @@ class BartPredictiveSelector:
             raise ValueError("n_repeats must be positive.")
 
         if n_permutations <= 0:
-            raise ValueError("n_permutation_repeats must be positive.")
+            raise ValueError("n_permutations must be positive.")
 
         if not 0.0 < selection_probability < 1.0:
             raise ValueError("selection_probability must be between 0 and 1.")
@@ -84,7 +84,7 @@ class BartPredictiveSelector:
         self.task = task
         self.loss_metric = loss_metric
         self.n_repeats = int(n_repeats)
-        self.n_permutation_repeats = int(n_permutations)
+        self.n_permutations = int(n_permutations)
         self.selection_probability = float(selection_probability)
         self.min_mean_degradation = float(min_mean_degradation)
         self.use_posterior_draws = bool(use_posterior_draws)
@@ -115,7 +115,7 @@ class BartPredictiveSelector:
             task=task,
             loss_metric=loss_metric,
             n_repeats=n_repeats,
-            n_permutation_repeats=n_permutations,
+            n_permutations=n_permutations,
             selection_probability=selection_probability,
             min_mean_degradation=min_mean_degradation,
             use_posterior_draws=use_posterior_draws,
@@ -182,10 +182,10 @@ class BartPredictiveSelector:
             baseline_losses = self._loss_per_draw(y_eval, baseline_draws)
             baseline_losses_all.append(baseline_losses)
 
-            for permutation_id in range(self.n_permutation_repeats):
+            for permutation_id in range(self.n_permutations):
                 if self.verbose:
                     print(f"  Permutation repeat "
-                          f"{permutation_id + 1}/{self.n_permutation_repeats}")
+                          f"{permutation_id + 1}/{self.n_permutations}")
 
                 for feature_id in range(n_features):
                     X_perm = permute_column(X_eval, feature_id, rng)
@@ -243,7 +243,7 @@ class BartPredictiveSelector:
             min_mean_degradation=self.min_mean_degradation,
             baseline_loss_mean=baseline_loss_mean,
             n_repeats=self.n_repeats,
-            n_permutations=self.n_permutation_repeats,
+            n_permutations=self.n_permutations,
             use_posterior_draws=self.use_posterior_draws,
         )
 
