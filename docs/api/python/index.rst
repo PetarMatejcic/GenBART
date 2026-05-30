@@ -24,17 +24,17 @@ The Python API contains the public user-facing estimators.
 
       Shared base class utilities.
    
-   .. grid-item-card:: Variable Selection
-      :link: variable_selection
+   .. grid-item-card:: Feature Selection
+      :link: feature_selection/index
       :link-type: doc
 
-      Variable selection workflow.
+      Feature selection workflow.
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 3
    :caption: Python API pages:
 
    reg_bart
    probit_bart
    base_bart
-   variable_selection
+   feature_selection/index
