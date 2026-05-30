@@ -235,7 +235,7 @@ class ProbitBart(BaseBART):
                 average_X[variable] = val
                 preds = self.predict_probs(average_X,
                                            level=level)
-                part_dep_preds[i] = preds["probs"]
+                part_dep_preds[i] = preds["prediction"]
                 part_dep_low[i] = preds["conf_int_low"]
                 part_dep_high[i] = preds["conf_int_high"]
 
