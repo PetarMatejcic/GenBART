@@ -121,7 +121,7 @@ def cross_validate_probit_bart(
             )
             model.fit(X[train_idx], y[train_idx])
 
-            probs = model.predict_probs(X[val_idx])["probs"]
+            probs = model.predict_probs(X[val_idx])["prediction"]
 
             if scoring == "auc":
                 score = roc_auc_score(y[val_idx], probs)
