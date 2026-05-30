@@ -135,7 +135,7 @@ class ProbitBart(BaseBART):
             level: Credible interval level for posterior probability intervals.
 
         Returns:
-            A dictionary containing ``"probs"``, ``"conf_int_low"``, and
+            A dictionary containing ``"prediction"``, ``"conf_int_low"``, and
             ``"conf_int_high"``. Values are scalars for a single multi-feature row and
             NumPy arrays for multiple rows.
 
@@ -150,11 +150,11 @@ class ProbitBart(BaseBART):
         conf_low, conf_high = np.quantile(prob_draws, [a/2.0, 1 - a/2.0], axis=0)
 
         if probs.shape[0] == 1:
-            out["probs"] = probs[0]
+            out["prediction"] = probs[0]
             out["conf_int_low"] = conf_low[0]
             out["conf_int_high"] = conf_high[0]
         else:
-            out["probs"] = probs
+            out["prediction"] = probs
             out["conf_int_low"] = conf_low
             out["conf_int_high"] = conf_high
 
@@ -171,7 +171,7 @@ class ProbitBart(BaseBART):
             A Boolean scalar or NumPy array indicating whether each posterior mean class
             probability is greater than or equal to ``threshold``.
         """
-        probs = self.predict_probs(X)["probs"]
+        probs = self.predict_probs(X)["prediction"]
         return probs >= threshold
 
     def partial_dependence(self,
@@ -400,6 +400,10 @@ class ProbitBart(BaseBART):
             "n_bins": int(n_bins),
             "strategy": strategy,
         }
+    
+    def posterior_sample_draws(self, X):
+        """Return posterior class-probability draws."""
+        return self._predict_prob_draws(X)
 
     def _predict_prob_draws(self, X):
         """Return posterior draws of P(Y = 1 | X).

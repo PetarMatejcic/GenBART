@@ -50,7 +50,7 @@ class BartPredictiveSelector:
         n_permutations: int = 5,
         selection_probability: float = 0.95,
         min_mean_degradation: float = 0.0,
-        use_posterior_draws: bool = True,
+        use_posterior_draws: bool = False,
         random_state: int | None = None,
         verbose: bool = False,
     ):
@@ -102,7 +102,7 @@ class BartPredictiveSelector:
         n_permutations: int = 5,
         selection_probability: float = 0.95,
         min_mean_degradation: float = 0.0,
-        use_posterior_draws: bool = True,
+        use_posterior_draws: bool = False,
         random_state: int | None = None,
         verbose: bool = False,
     ) -> BartPredictiveSelector:
@@ -279,67 +279,17 @@ class BartPredictiveSelector:
         self._check_is_fitted()
         return self.result_.summary()
 
-    def _prediction_draws(self, model: Any, X: np.ndarray) -> np.ndarray:
-        """Return prediction/probability draws with shape (n_draws, n_observations)."""
-        X = np.asarray(X)
-        if X.ndim == 1:
-            X = X.reshape((-1, 1))
+    def _prediction_draws(self, model, X):
+        if self.use_posterior_draws:
+            if not hasattr(model, "posterior_sample_draws"):
+                raise TypeError(
+                    "use_posterior_draws=True requires a model with posterior_draws(X)."
+                )
+            return self._as_2d_draws(model.posterior_sample_draws(X))
 
         if self.task == "classification":
-            return self._classification_prediction_draws(model, X)
-
-        return self._regression_prediction_draws(model, X)
-
-    def _classification_prediction_draws(self, model: Any, X: np.ndarray) -> np.ndarray:
-        """Return classification probability draws."""
-        if self.use_posterior_draws:
-            if hasattr(model, "probability_draws"):
-                draws = model.probability_draws(X)
-            elif hasattr(model, "_predict_prob_draws"):
-                draws = model._predict_prob_draws(X)
-            else:
-                raise TypeError(
-                    "classification with use_posterior_draws=True requires "
-                    "a model with probability_draws(X) or _predict_prob_draws(X)."
-                )
-
-            return self._as_2d_draws(draws)
-
-        if not hasattr(model, "predict_probs"):
-            raise TypeError(
-                "classification with use_posterior_draws=False requires "
-                "a model with predict_probs(X)."
-            )
-
-        probs = model.predict_probs(X)["probs"]
-        return self._as_point_prediction_draws(probs)
-
-    def _regression_prediction_draws(self, model: Any, X: np.ndarray) -> np.ndarray:
-        """Return regression prediction draws."""
-        if self.use_posterior_draws:
-            if hasattr(model, "prediction_draws"):
-                draws = model.prediction_draws(X)
-                return self._as_2d_draws(draws)
-
-            if not hasattr(model, "packed_forest") or model.packed_forest is None:
-                raise RuntimeError("Model must be fitted before prediction.")
-
-            if not hasattr(model, "_inverse_transform_y"):
-                raise TypeError(
-                    "regression with use_posterior_draws=True requires "
-                    "a model with prediction_draws(X), or packed_forest plus "
-                    "_inverse_transform_y()."
-                )
-
-            raw_draws = model.packed_forest.draw_sums_matrix(X)
-            draws = model._inverse_transform_y(raw_draws)
-            return self._as_2d_draws(draws)
-
-        if not hasattr(model, "predict"):
-            raise TypeError(
-                "regression with use_posterior_draws=False requires "
-                "a model with predict(X, conf_int=False)."
-            )
+            probs = model.predict_probs(X)["probs"]
+            return self._as_point_prediction_draws(probs)
 
         pred = model.predict(X, conf_int=False)["prediction"]
         return self._as_point_prediction_draws(pred)
@@ -358,19 +308,19 @@ class BartPredictiveSelector:
             if not np.all((y_binary == 0) | (y_binary == 1)):
                 raise ValueError("classification y must contain only 0/1 labels.")
 
-            probs = np.clip(pred_draws, 1e-12, 1.0 - 1e-12)
+            prediction = np.clip(pred_draws, 1e-12, 1.0 - 1e-12)
             yy = y_binary.reshape(1, -1)
 
             if self.loss_metric == "brier":
-                return np.mean((probs - yy) ** 2, axis=1)
+                return np.mean((prediction - yy) ** 2, axis=1)
 
             if self.loss_metric == "log_loss":
                 return -np.mean(
-                    yy * np.log(probs) + (1 - yy) * np.log(1 - probs),
+                    yy * np.log(prediction) + (1 - yy) * np.log(1 - prediction),
                     axis=1,
                 )
 
-        else:
+        if self.task == "regression":
             yy = y.astype(float).reshape(1, -1)
             errors2 = (pred_draws - yy) ** 2
 

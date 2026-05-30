@@ -215,6 +215,22 @@ class RegBart(BaseBART):
                 out["conf_int_low"] = self._inverse_transform_y(low_ints)
                 out["conf_int_high"] = self._inverse_transform_y(high_ints)
             return out
+        
+    def posterior_sample_draws(self, X):
+        """Return posterior regression-function draws on the original response scale."""
+        if self.packed_forest is None:
+            raise RuntimeError("Model not fitted.")
+
+        data = np.asarray(X)
+
+        if data.ndim == 1 and self.p > 1:
+            draws = self.packed_forest.draw_sums_row(data).reshape(-1, 1)
+        else:
+            if data.ndim == 1:
+                data = data.reshape((-1, 1))
+            draws = self.packed_forest.draw_sums_matrix(data)
+
+        return self._inverse_transform_y(draws)
 
     def partial_dependence(self,
                            variable: int | tuple,
