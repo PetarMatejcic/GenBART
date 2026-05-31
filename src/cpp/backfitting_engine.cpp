@@ -88,6 +88,85 @@ void BackfittingEngine::backfitting_sweep(
     }
 }
 
+py::tuple BackfittingEngine::variable_inclusion(
+    const DoubleArray& residuals,
+    double sigma2,
+    double sigma_mu2
+) const {
+    validate_residuals_array(residuals);
+
+    if (sigma2 <= 0.0) {
+        throw std::runtime_error("sigma2 must be positive.");
+    }
+    if (sigma_mu2 <= 0.0) {
+        throw std::runtime_error("sigma_mu2 must be positive.");
+    }
+
+    std::vector<double> residual_base(static_cast<size_t>(n_));
+    {
+        const auto r = residuals.unchecked<1>();
+        for (int32_t i = 0; i < n_; ++i) {
+            residual_base[static_cast<size_t>(i)] = r(i);
+        }
+    }
+
+    std::vector<double> raw_counts(static_cast<size_t>(p_), 0.0);
+    std::vector<double> logml_gains(static_cast<size_t>(p_), 0.0);
+    double total_splits = 0.0;
+
+    {
+        py::gil_scoped_release release;
+
+        for (int32_t j = 0; j < m_; ++j) {
+            const Tree& tree = forest_[static_cast<size_t>(j)];
+
+            // Current residual_base is:
+            //     y_work - sum_l g_l(x)
+            //
+            // For tree j we need:
+            //     R_j = y_work - sum_{l != j} g_l(x)
+            //
+            // Therefore:
+            //     R_j = residual_base + g_j(x)
+            std::vector<double> partial_residuals = residual_base;
+            add_tree_prediction_to_vector(tree, partial_residuals, +1.0);
+
+            accumulate_variable_inclusion_for_tree(
+                tree,
+                partial_residuals,
+                sigma2,
+                sigma_mu2,
+                raw_counts,
+                total_splits,
+                logml_gains
+            );
+        }
+    }
+
+    py::array_t<double> raw_arr(p_);
+    py::array_t<double> logml_arr(p_);
+
+    auto raw_out = raw_arr.mutable_unchecked<1>();
+    auto logml_out = logml_arr.mutable_unchecked<1>();
+
+    const double total_gain =
+        std::accumulate(logml_gains.begin(), logml_gains.end(), 0.0);
+
+    for (int32_t v = 0; v < p_; ++v) {
+        const size_t idx = static_cast<size_t>(v);
+
+        raw_out(v) = total_splits > 0.0
+            ? raw_counts[idx] / total_splits
+            : 0.0;
+
+        logml_out(v) = total_gain > 0.0
+            ? logml_gains[idx] / total_gain
+            : 0.0;
+    }
+
+    return py::make_tuple(std::move(raw_arr), std::move(logml_arr));
+}
+
 void BackfittingEngine::apply_tree_to_residuals_impl(
     int32_t j,
     DoubleArray residuals,
@@ -104,6 +183,23 @@ void BackfittingEngine::apply_tree_to_residuals_impl(
 
         for (int32_t row : node.rows) {
             r(row) += delta;
+        }
+    }
+}
+
+void BackfittingEngine::add_tree_prediction_to_vector(
+    const Tree& tree,
+    std::vector<double>& values,
+    double sign
+) const {
+    const auto& terminals = tree.terminal_nodes(false);
+
+    for (int32_t node_idx : terminals) {
+        const Node& node = tree.node(node_idx);
+        const double delta = sign * static_cast<double>(node.mu);
+
+        for (int32_t row : node.rows) {
+            values[static_cast<size_t>(row)] += delta;
         }
     }
 }
@@ -314,22 +410,51 @@ double BackfittingEngine::log_likelihood_ratio(
     double sigma2,
     double sigma_mu2
 ) const {
-    auto contribution = [&](const TerminalStat& s) -> double {
-        const double denom = sigma2 + static_cast<double>(s.n) * sigma_mu2;
-        const double sse = s.sum_r * s.sum_r;
-
-        return 0.5 * std::log(sigma2 / denom)
-             + (sigma_mu2 * sse) / (2.0 * sigma2 * denom);
-    };
-
     double ratio = 0.0;
+
     for (const auto& s : new_terminals) {
-        ratio += contribution(s);
+        ratio += leaf_log_marginal_contribution(
+            s.n,
+            s.sum_r,
+            sigma2,
+            sigma_mu2
+        );
     }
+
     for (const auto& s : old_terminals) {
-        ratio -= contribution(s);
+        ratio -= leaf_log_marginal_contribution(
+            s.n,
+            s.sum_r,
+            sigma2,
+            sigma_mu2
+        );
     }
+
     return ratio;
+}
+
+double BackfittingEngine::leaf_log_marginal_contribution(
+    int32_t n,
+    double sum_r,
+    double sigma2,
+    double sigma_mu2
+) const {
+    if (n <= 0) {
+        throw std::runtime_error("leaf_log_marginal_contribution requires n > 0.");
+    }
+    if (sigma2 <= 0.0) {
+        throw std::runtime_error("sigma2 must be positive.");
+    }
+    if (sigma_mu2 <= 0.0) {
+        throw std::runtime_error("sigma_mu2 must be positive.");
+    }
+
+    const double n_leaf = static_cast<double>(n);
+    const double denom = sigma2 + n_leaf * sigma_mu2;
+    const double sse = sum_r * sum_r;
+
+    return 0.5 * std::log(sigma2 / denom)
+         + (sigma_mu2 * sse) / (2.0 * sigma2 * denom);
 }
 
 double BackfittingEngine::log_prior_ratio(
@@ -349,6 +474,111 @@ double BackfittingEngine::log_prior_ratio(
         ratio -= contribution(s);
     }
     return ratio;
+}
+
+double BackfittingEngine::sum_residuals_for_node(
+    const Node& node,
+    const std::vector<double>& residuals
+) const {
+    double sum_r = 0.0;
+
+    for (int32_t row : node.rows) {
+        sum_r += residuals[static_cast<size_t>(row)];
+    }
+
+    return sum_r;
+}
+
+double BackfittingEngine::subtree_log_marginal_contribution(
+    const Tree& tree,
+    int32_t node_idx,
+    const std::vector<double>& residuals,
+    double sigma2,
+    double sigma_mu2
+) const {
+    const Node& node = tree.node(node_idx);
+
+    if (node.is_terminal()) {
+        const int32_t n_leaf = static_cast<int32_t>(node.rows.size());
+        const double sum_r = sum_residuals_for_node(node, residuals);
+
+        return leaf_log_marginal_contribution(
+            n_leaf,
+            sum_r,
+            sigma2,
+            sigma_mu2
+        );
+    }
+
+    return subtree_log_marginal_contribution(
+                tree,
+                node.left,
+                residuals,
+                sigma2,
+                sigma_mu2
+           )
+         + subtree_log_marginal_contribution(
+                tree,
+                node.right,
+                residuals,
+                sigma2,
+                sigma_mu2
+           );
+}
+
+void BackfittingEngine::accumulate_variable_inclusion_for_tree(
+    const Tree& tree,
+    const std::vector<double>& partial_residuals,
+    double sigma2,
+    double sigma_mu2,
+    std::vector<double>& raw_counts,
+    double& total_splits,
+    std::vector<double>& logml_gains
+) const {
+    const auto& internal_nodes = tree.internal_nodes();
+
+    for (int32_t node_idx : internal_nodes) {
+        const Node& node = tree.node(node_idx);
+
+        if (node.variable < 0 || node.variable >= p_) {
+            throw std::runtime_error("Internal node has invalid split variable.");
+        }
+
+        const size_t var = static_cast<size_t>(node.variable);
+
+        // Raw split-count VIP contribution.
+        raw_counts[var] += 1.0;
+        total_splits += 1.0;
+
+        // Collapsed-node likelihood.
+        const int32_t n_node = static_cast<int32_t>(node.rows.size());
+        const double collapsed_sum_r =
+            sum_residuals_for_node(node, partial_residuals);
+
+        const double collapsed_logml =
+            leaf_log_marginal_contribution(
+                n_node,
+                collapsed_sum_r,
+                sigma2,
+                sigma_mu2
+            );
+
+        // Full-subtree likelihood.
+        const double subtree_logml =
+            subtree_log_marginal_contribution(
+                tree,
+                node_idx,
+                partial_residuals,
+                sigma2,
+                sigma_mu2
+            );
+
+        const double gain = subtree_logml - collapsed_logml;
+
+        if (gain > 0.0) {
+            logml_gains[var] += gain;
+        }
+    }
 }
 
 void BackfittingEngine::draw_mu(
@@ -903,6 +1133,28 @@ void bind_backfitting_engine(py::module_& m) {
             py::arg("alpha"),
             py::arg("beta"),
             py::arg("move_distribution")
+        )
+        .def(
+            "variable_inclusion",
+            &BackfittingEngine::variable_inclusion,
+            R"pbdoc(
+            Compute raw and log-marginal-likelihood-weighted variable inclusion.
+
+            Args:
+                residuals: Current full residual vector, y_work minus the full forest fit.
+                sigma2: Observation variance.
+                sigma_mu2: Prior variance for terminal-node means.
+
+            Returns:
+                Tuple (raw_vi, logml_weighted_vi), where both arrays have length p.
+
+            Notes:
+                The weighted score uses subtree-collapse positive log marginal likelihood gain.
+                This method does not mutate residuals or the live forest.
+            )pbdoc",
+            py::arg("residuals"),
+            py::arg("sigma2"),
+            py::arg("sigma_mu2")
         )
         .def(
             "draw_tree",

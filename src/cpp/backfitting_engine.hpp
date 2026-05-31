@@ -154,6 +154,7 @@ public:
      * @throws std::runtime_error If `j` is out of bounds.
      */
     py::tuple serialize_tree(int32_t j) const;
+
     /**
      * @brief Serialize the full live forest into flat node arrays.
      *
@@ -166,6 +167,24 @@ public:
     py::tuple serialize_forest() const;
 
     /**
+     * @brief Compute raw and log-marginal-likelihood-weighted variable inclusion.
+     *
+     * Returns two length-p arrays for the current live forest:
+     *   1. raw split-count variable inclusion
+     *   2. subtree-collapse log marginal likelihood weighted inclusion
+     *
+     * The supplied residuals are the current full residuals:
+     *     y_work - sum_j g_j(x)
+     *
+     * This method does not mutate residuals or the live forest.
+     */
+    py::tuple variable_inclusion(
+        const DoubleArray& residuals,
+        double sigma2,
+        double sigma_mu2
+    ) const;
+
+    /**
      * @brief Validate one tree in the live forest.
      *
      * Checks tree topology, parent-child links, cached row state, and live/dead node
@@ -176,6 +195,7 @@ public:
      * @throws std::runtime_error If `j` is invalid or tree invariants are violated.
      */
     void validate_tree(int32_t j) const;
+
     /**
      * @brief Validate every tree in the live forest.
      *
@@ -191,12 +211,14 @@ public:
      * @return Number of rows in the training matrix.
      */
     int32_t n() const noexcept { return n_; }
+
     /**
      * @brief Return the number of predictor columns.
      *
      * @return Number of columns in the training matrix.
      */
     int32_t p() const noexcept { return p_; }
+
     /**
      * @brief Return the number of trees in the ensemble.
      *
@@ -217,6 +239,7 @@ public:
      * @throws std::runtime_error If `j` is out of bounds or `residuals` has wrong shape.
      */
     void test_apply_tree_to_residuals(int32_t j, DoubleArray residuals, double sign);
+
     /**
      * @brief Test helper that draws terminal means and subtracts the tree fit.
      *
@@ -326,6 +349,42 @@ private:
     double log_prior_ratio(
         const std::vector<InternalStat>& new_internals,
         const std::vector<InternalStat>& old_internals
+    ) const;
+
+    double leaf_log_marginal_contribution(
+        int32_t n,
+        double sum_r,
+        double sigma2,
+        double sigma_mu2
+    ) const;
+
+    double sum_residuals_for_node(
+        const Node& node,
+        const std::vector<double>& residuals
+    ) const;
+
+    double subtree_log_marginal_contribution(
+        const Tree& tree,
+        int32_t node_idx,
+        const std::vector<double>& residuals,
+        double sigma2,
+        double sigma_mu2
+    ) const;
+
+    void add_tree_prediction_to_vector(
+        const Tree& tree,
+        std::vector<double>& values,
+        double sign
+    ) const;
+
+    void accumulate_variable_inclusion_for_tree(
+        const Tree& tree,
+        const std::vector<double>& partial_residuals,
+        double sigma2,
+        double sigma_mu2,
+        std::vector<double>& raw_counts,
+        double& total_splits,
+        std::vector<double>& logml_gains
     ) const;
 
     double p_split(int32_t depth, double alpha, double beta) const;
