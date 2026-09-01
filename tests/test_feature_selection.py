@@ -185,13 +185,36 @@ def test_global_max_threshold():
     assert "max_null" in result.extra
 
 
-def test_global_se_threshold():
-    importance = np.array([0.4, 0.1, 0.7])
+def test_global_se_threshold_uses_strict_bleich_coverage():
+    importance = np.array([9.5])
+    null_importance = np.arange(10, dtype=float).reshape(-1, 1)
+
+    result = global_se_threshold(
+        feature_names=["a"],
+        importance=importance,
+        null_importance=null_importance,
+        alpha=0.05,
+    )
+
+    null_mean = null_importance[:, 0].mean()
+    null_sd = null_importance[:, 0].std(ddof=1)
+
+    expected_global_se = (9.0 - null_mean) / null_sd
+
+    assert result.method == "global_se"
+    assert result.extra["global_se"] == pytest.approx(expected_global_se)
+    assert result.thresholds[0] == pytest.approx(9.0)
+    assert result.selected[0]
+
+
+def test_global_se_threshold_uses_common_multiplier_and_handles_zero_sd():
+    importance = np.array([0.25, 0.25, 0.25])
+
     null_importance = np.array(
         [
-            [0.1, 0.2, 0.3],
-            [0.2, 0.2, 0.4],
-            [0.3, 0.2, 0.5],
+            [0.1, 0.3, 0.2],
+            [0.2, 0.1, 0.2],
+            [0.3, 0.2, 0.2],
         ]
     )
 
@@ -202,11 +225,15 @@ def test_global_se_threshold():
         alpha=0.5,
     )
 
-    assert result.method == "global_se"
-    assert result.thresholds.shape == (3,)
-    assert "global_se" in result.extra
-    assert "null_mean" in result.extra
-    assert "null_sd" in result.extra
+    assert result.extra["global_se"] == pytest.approx(0.0)
+    assert np.allclose(result.thresholds, np.array([0.2, 0.2, 0.2]))
+    assert np.array_equal(
+        result.selected,
+        np.array([True, True, True]),
+    )
+
+    # Feature c has a constant permutation-null distribution.
+    assert result.extra["null_sd"][2] == pytest.approx(0.0)
 
 
 def test_build_threshold_results_contains_all_methods():

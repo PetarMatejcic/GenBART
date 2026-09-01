@@ -80,7 +80,17 @@ def global_se_threshold(
     null_importance: np.ndarray,
     alpha: float,
 ) -> ThresholdResult:
-    """Compare each feature against a globally standardized null threshold."""
+    """Compare each feature against the Bleich et al. global-SE threshold.
+
+    The global-SE criterion chooses the smallest common nonnegative multiplier
+    C* such that, for every feature, more than 1 - alpha of its permutation-null
+    importance values lie below
+
+        null_mean_j + C* * null_sd_j.
+
+    Features are selected when their observed importance is strictly greater
+    than the resulting feature-specific threshold.
+    """
     importance, null_importance = _validate_threshold_inputs(
         importance=importance,
         null_importance=null_importance,
@@ -91,18 +101,43 @@ def global_se_threshold(
     quantile = 1.0 - alpha
 
     null_mean = null_importance.mean(axis=0)
+
     if null_importance.shape[0] > 1:
         null_sd = null_importance.std(axis=0, ddof=1)
     else:
         null_sd = np.zeros(null_importance.shape[1], dtype=float)
 
-    safe_sd = null_sd.copy()
-    safe_sd[safe_sd == 0.0] = 1.0
+    n_null = null_importance.shape[0]
 
-    standardized = (null_importance - null_mean) / safe_sd
-    max_standardized = np.max(standardized, axis=1)
+    # We need strictly more than (1 - alpha) of the null values to be
+    # covered. If k is the required number of covered values, then
+    #
+    #     k = floor(n_null * (1 - alpha)) + 1.
+    #
+    # The corresponding zero-based order-statistic index is therefore
+    # floor(n_null * (1 - alpha)).
+    required_index = int(np.floor(n_null * quantile))
 
-    global_se = float(np.quantile(max_standardized, quantile))
+    positive_sd = null_sd > 0.0
+
+    if np.any(positive_sd):
+        standardized = (
+            null_importance[:, positive_sd] - null_mean[positive_sd]
+        ) / null_sd[positive_sd]
+
+        required_by_feature = np.partition(
+            standardized,
+            required_index,
+            axis=0,
+        )[required_index, :]
+
+        global_se = float(
+            max(0.0, np.max(required_by_feature))
+        )
+    else:
+        # Constant null distributions already have complete coverage at C = 0.
+        global_se = 0.0
+
     thresholds = null_mean + global_se * null_sd
     selected = importance > thresholds
 
@@ -117,7 +152,6 @@ def global_se_threshold(
             "global_se": global_se,
             "null_mean": null_mean,
             "null_sd": null_sd,
-            "max_standardized": max_standardized,
         },
     )
 
