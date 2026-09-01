@@ -163,37 +163,83 @@ class BartVariableSelector:
         self._check_is_fitted()
         return self.result_.compare_methods()
 
+    def get_result(
+        self,
+        importance_kind: str | None = None,
+    ) -> VariableSelectionResult:
+        """Return the fitted result for one importance definition.
+
+        Parameters
+        ----------
+        importance_kind : {"raw", "logml"}, optional
+            Importance definition to return. If omitted, the selector's configured
+            default importance_kind is used.
+        """
+        self._check_is_fitted()
+
+        if importance_kind is None:
+            importance_kind = self.importance_kind
+
+        validate_importance_kind(importance_kind)
+        return self.results_[importance_kind]
+
     def _fit_observed_response(
         self,
         X: np.ndarray,
         y: np.ndarray,
         seeds: np.ndarray,
     ) -> None:
-        """Fit repeated models on the observed response."""
+        """Fit repeated models on the observed response.
+
+        Every fitted BART model is used to extract both raw and logML variable
+        inclusion values.
+        """
         n_features = X.shape[1]
-        importance_repeats = np.empty((self.n_repeats, n_features),
-                                      dtype=float)
+
+        importance_repeats_by_kind = {
+            kind: np.empty((self.n_repeats, n_features), dtype=float)
+            for kind in VALID_IMPORTANCE_KINDS
+        }
 
         for repeat_id, seed in enumerate(seeds):
             if self.verbose:
-                print(f"Fitting observed-response BART "
-                      f"{repeat_id + 1}/{self.n_repeats}")
+                print(
+                    f"Fitting observed-response BART "
+                    f"{repeat_id + 1}/{self.n_repeats}"
+                )
 
-            model = make_model(self.model_cls,
-                               self.model_params,
-                               random_state=seed)
+            model = make_model(
+                self.model_cls,
+                self.model_params,
+                random_state=seed,
+            )
             model.fit(X, y)
 
-            importance_repeats[repeat_id, :] = self._extract_importance(model,
-                                                                        n_features=n_features)
+            importances = self._extract_importances(
+                model,
+                n_features=n_features,
+            )
 
-        self.importance_repeats_ = importance_repeats
-        self.importance_ = importance_repeats.mean(axis=0)
+            for kind in VALID_IMPORTANCE_KINDS:
+                importance_repeats_by_kind[kind][repeat_id, :] = importances[kind]
 
-        if self.n_repeats > 1:
-            self.importance_sd_ = importance_repeats.std(axis=0, ddof=1)
-        else:
-            self.importance_sd_ = np.zeros(n_features, dtype=float)
+        self.importance_repeats_by_kind_ = importance_repeats_by_kind
+
+        self.importance_by_kind_ = {
+            kind: values.mean(axis=0)
+            for kind, values in importance_repeats_by_kind.items()
+        }
+
+        self.importance_sd_by_kind_ = {}
+
+        for kind, values in importance_repeats_by_kind.items():
+            if self.n_repeats > 1:
+                self.importance_sd_by_kind_[kind] = values.std(axis=0, ddof=1)
+            else:
+                self.importance_sd_by_kind_[kind] = np.zeros(
+                    n_features,
+                    dtype=float,
+                )
 
     def _fit_null_distribution(
         self,
@@ -202,72 +248,128 @@ class BartVariableSelector:
         model_seeds: np.ndarray,
         shuffle_seeds: np.ndarray,
     ) -> None:
-        """Fit repeated models on permuted responses."""
+        """Fit repeated models on permuted responses.
+
+        Every fitted permutation-null BART model is used to extract both raw and
+        logML variable inclusion values.
+        """
         n_features = X.shape[1]
-        null_importance = np.empty(
-            (self.n_permutations, n_features),
-            dtype=float,
-        )
+
+        null_importance_by_kind = {
+            kind: np.empty(
+                (self.n_permutations, n_features),
+                dtype=float,
+            )
+            for kind in VALID_IMPORTANCE_KINDS
+        }
 
         for permutation_id, shuffle_seed in enumerate(shuffle_seeds):
             if self.verbose:
-                print(f"Fitting permuted-response BART "
-                      f"{permutation_id + 1}/{self.n_permutations}")
+                print(
+                    f"Fitting permuted-response BART "
+                    f"{permutation_id + 1}/{self.n_permutations}"
+                )
 
             y_perm = permute_response(y, int(shuffle_seed))
-            permutation_importance = np.empty((self.n_repeats, n_features),
-                                              dtype=float)
 
-            for repeat_id, model_seed in enumerate(model_seeds[permutation_id]):
-                model = make_model(self.model_cls,
-                                   self.model_params,
-                                   random_state=model_seed)
+            permutation_importance_by_kind = {
+                kind: np.empty(
+                    (self.n_repeats, n_features),
+                    dtype=float,
+                )
+                for kind in VALID_IMPORTANCE_KINDS
+            }
+
+            for repeat_id, model_seed in enumerate(
+                model_seeds[permutation_id]
+            ):
+                model = make_model(
+                    self.model_cls,
+                    self.model_params,
+                    random_state=model_seed,
+                )
                 model.fit(X, y_perm)
 
-                permutation_importance[repeat_id, :] = self._extract_importance(model,
-                                                                                n_features=n_features)
+                importances = self._extract_importances(
+                    model,
+                    n_features=n_features,
+                )
 
-            null_importance[permutation_id, :] = permutation_importance.mean(axis=0)
+                for kind in VALID_IMPORTANCE_KINDS:
+                    permutation_importance_by_kind[kind][
+                        repeat_id, :
+                    ] = importances[kind]
 
-        self.null_importance_ = null_importance
+            for kind in VALID_IMPORTANCE_KINDS:
+                null_importance_by_kind[kind][
+                    permutation_id, :
+                ] = permutation_importance_by_kind[kind].mean(axis=0)
+
+        self.null_importance_by_kind_ = null_importance_by_kind
 
     def _build_result(self) -> VariableSelectionResult:
-        """Build the fitted result object."""
-        methods = build_threshold_results(feature_names=self.feature_names_,
-                                          importance=self.importance_,
-                                          null_importance=self.null_importance_,
-                                          alpha=self.alpha)
+        """Build fitted results for both raw and logML importance."""
+        results = {}
 
-        return VariableSelectionResult(
-            feature_names=self.feature_names_,
-            importance=self.importance_,
-            importance_repeats=self.importance_repeats_,
-            importance_sd=self.importance_sd_,
-            null_importance=self.null_importance_,
-            methods=methods,
-            default_method=self.method,
-            importance_kind=self.importance_kind,
-        )
+        for kind in VALID_IMPORTANCE_KINDS:
+            methods = build_threshold_results(
+                feature_names=self.feature_names_,
+                importance=self.importance_by_kind_[kind],
+                null_importance=self.null_importance_by_kind_[kind],
+                alpha=self.alpha,
+            )
 
-    def _extract_importance(
+            results[kind] = VariableSelectionResult(
+                feature_names=self.feature_names_,
+                importance=self.importance_by_kind_[kind],
+                importance_repeats=self.importance_repeats_by_kind_[kind],
+                importance_sd=self.importance_sd_by_kind_[kind],
+                null_importance=self.null_importance_by_kind_[kind],
+                methods=methods,
+                default_method=self.method,
+                importance_kind=kind,
+            )
+
+        self.results_ = results
+
+        default_result = results[self.importance_kind]
+
+        # Backward-compatible selector attributes. These continue to refer to the
+        # importance kind configured when the selector was created.
+        self.importance_ = default_result.importance
+        self.importance_repeats_ = default_result.importance_repeats
+        self.importance_sd_ = default_result.importance_sd
+        self.null_importance_ = default_result.null_importance
+
+        return default_result
+
+    def _extract_importances(
         self,
         model: Any,
         *,
         n_features: int,
-    ) -> np.ndarray:
-        """Extract and validate variable-inclusion importance from a fitted model."""
+    ) -> dict[str, np.ndarray]:
+        """Extract and validate both variable-inclusion importance definitions."""
         if not hasattr(model, "variable_inclusion"):
             raise TypeError("model must implement variable_inclusion().")
 
-        importance = np.asarray(model.variable_inclusion(kind=self.importance_kind),
-                                dtype=float)
+        importances = {}
 
-        if importance.shape != (n_features,):
-            raise RuntimeError(
-                f"variable_inclusion returned shape {importance.shape}, "
-                f"expected {(n_features,)}.")
+        for kind in VALID_IMPORTANCE_KINDS:
+            importance = np.asarray(
+                model.variable_inclusion(kind=kind),
+                dtype=float,
+            )
 
-        return importance
+            if importance.shape != (n_features,):
+                raise RuntimeError(
+                    f"variable_inclusion(kind={kind!r}) returned shape "
+                    f"{importance.shape}, expected {(n_features,)}."
+                )
+
+            importances[kind] = importance
+
+        return importances
 
     def _check_is_fitted(self) -> None:
         """Raise if the selector has not been fitted."""

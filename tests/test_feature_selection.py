@@ -350,6 +350,61 @@ def test_probitbart_predict_and_posterior_sample_draws_api():
     assert np.all((draws >= 0.0) & (draws <= 1.0))
 
 
+def test_bart_variable_selector_reuses_fits_for_raw_and_logml():
+    class CountingBart:
+        fit_calls = 0
+
+        def __init__(self, random_state=None):
+            self.random_state = random_state
+
+        def fit(self, X, y):
+            type(self).fit_calls += 1
+            self.n_features = np.asarray(X).shape[1]
+            return self
+
+        def variable_inclusion(self, kind="raw"):
+            if kind == "raw":
+                return np.linspace(
+                    0.1,
+                    0.5,
+                    self.n_features,
+                )
+
+            if kind == "logml":
+                return np.linspace(
+                    0.5,
+                    0.1,
+                    self.n_features,
+                )
+
+            raise ValueError("Unknown importance kind.")
+
+    X, y = make_regression_data()
+
+    CountingBart.fit_calls = 0
+
+    selector = BartVariableSelector(
+        CountingBart,
+        n_permutations=3,
+        n_repeats=2,
+        alpha=0.2,
+        importance_kind="raw",
+        random_state=123,
+    )
+
+    selector.fit(X, y)
+
+    expected_fits = (
+        selector.n_repeats
+        + selector.n_permutations * selector.n_repeats
+    )
+
+    assert CountingBart.fit_calls == expected_fits
+
+    assert selector.get_result("raw").importance_kind == "raw"
+    assert selector.get_result("logml").importance_kind == "logml"
+
+
 def test_basebart_variable_inclusion_supports_raw_and_logml():
     X, y = make_regression_data()
 
@@ -396,6 +451,31 @@ def test_bart_variable_selector_classification_raw():
     assert result.importance_kind == "raw"
     assert set(result.methods) == {"local", "global_max", "global_se"}
 
+    raw_result = selector.get_result("raw")
+    logml_result = selector.get_result("logml")
+
+    assert result is raw_result
+
+    assert raw_result.importance_kind == "raw"
+    assert logml_result.importance_kind == "logml"
+
+    assert raw_result.importance.shape == (X.shape[1],)
+    assert logml_result.importance.shape == (X.shape[1],)
+
+    assert raw_result.null_importance.shape == (2, X.shape[1])
+    assert logml_result.null_importance.shape == (2, X.shape[1])
+
+    assert set(raw_result.methods) == {
+        "local",
+        "global_max",
+        "global_se",
+    }
+    assert set(logml_result.methods) == {
+        "local",
+        "global_max",
+        "global_se",
+    }
+
 
 def test_bart_variable_selector_regression_logml():
     X, y = make_regression_data()
@@ -422,6 +502,10 @@ def test_bart_variable_selector_regression_logml():
     assert result.null_importance.shape == (2, X.shape[1])
     assert result.importance_kind == "logml"
     assert result.summary()["method"] == "local"
+
+    assert result is selector.get_result("logml")
+    assert selector.get_result().importance_kind == "logml"
+    assert selector.get_result("raw").importance_kind == "raw"
 
 
 def test_bart_predictive_selector_classification_point_predictions():
@@ -570,3 +654,32 @@ def test_selector_from_model_constructors():
 
     assert variable_selector.model_cls is RegBart
     assert predictive_selector.model_cls is ProbitBart
+
+
+def test_bart_variable_selector_get_result_requires_fit():
+    selector = BartVariableSelector(
+        RegBart,
+        model_params=small_regbart_params(),
+        n_permutations=2,
+        n_repeats=1,
+    )
+
+    with pytest.raises(RuntimeError, match="not fitted"):
+        selector.get_result("raw")
+
+
+def test_bart_variable_selector_get_result_rejects_bad_importance_kind():
+    X, y = make_regression_data()
+
+    selector = BartVariableSelector(
+        RegBart,
+        model_params=small_regbart_params(),
+        n_permutations=2,
+        n_repeats=1,
+        random_state=123,
+    )
+
+    selector.fit(X, y)
+
+    with pytest.raises(ValueError, match="importance_kind"):
+        selector.get_result("something_else")
