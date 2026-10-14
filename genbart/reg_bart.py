@@ -24,18 +24,97 @@ from genbart.base_bart import BaseBART
 class RegBart(BaseBART):
     """Bayesian additive regression trees model for continuous outcomes.
 
-    ``RegBart`` fits a sum-of-trees regression model with Gaussian observation
-    noise. Responses are shifted and scaled before sampling so the terminal-node
-    prior can shrink each tree toward a weak contribution. Posterior forest draws
-    are retained and used to compute point predictions, posterior intervals,
-    variable-usage summaries, and approximate marginal effects.
+    ``RegBart`` models a continuous response as a sum of regression trees with
+    Gaussian observation noise. Posterior tree ensembles are sampled using
+    Bayesian backfitting MCMC.
 
-    Attributes:
-        nu: Degrees of freedom for the inverse-chi-square prior on ``sigma2``.
-        q: Prior quantile level used to calibrate the scale parameter ``lambda_``.
-        y_shift: Center used to transform the original response before fitting.
-        y_scale: Scale used to transform the original response before fitting.
-        lambda_: Scale parameter for the inverse-chi-square prior on ``sigma2``.
+    Before fitting, the response is shifted and scaled to approximately
+    ``[-0.5, 0.5]``. Predictions are transformed back to the original response
+    scale before being returned.
+
+    Parameters
+    ----------
+    m : int, default=200
+        Number of trees in the BART ensemble.
+
+        Increasing ``m`` gives the model more trees over which to distribute the
+        fitted regression function, but also increases sampling and storage cost.
+        The terminal-node prior is scaled with ``m`` so that individual trees are
+        more strongly shrunk as the ensemble becomes larger.
+
+    alpha : float, default=0.95
+        Base probability parameter in the tree-structure prior.
+
+    beta : float, default=2.0
+        Depth penalty in the tree-structure prior.
+
+        A node at depth ``d`` is assigned splitting probability
+
+        .. math::
+
+            p_{\\mathrm{split}}(d)
+            =
+            \\frac{\\alpha}{(1+d)^{\\beta}}.
+
+        Larger ``beta`` therefore favors shallower trees more strongly.
+
+    k : float, default=2.0
+        Shrinkage parameter controlling the prior variance of terminal-node
+        means. For regression BART,
+
+        .. math::
+
+            \\sigma_{\\mu}^{2}
+            =
+            \\left(
+            \\frac{0.5}{k\\sqrt{m}}
+            \\right)^2.
+
+        Larger ``k`` produces stronger shrinkage toward small individual-tree
+        contributions.
+
+    nu : float, default=3.0
+        Degrees of freedom of the scaled inverse-chi-squared prior on the
+        observation variance. Larger values make the prior more concentrated.
+
+    q : float, default=0.90
+        Quantile used to calibrate the observation-variance prior.
+
+        The prior scale is chosen so that the initial residual variance estimate
+        used during fitting is the ``q`` quantile of the prior distribution.
+        Larger ``q`` shifts more prior probability toward smaller observation
+        variances relative to that estimate.
+
+    n_burn : int, default=200
+        Number of initial MCMC iterations discarded as burn-in.
+
+    n_samples : int, default=1000
+        Number of posterior MCMC draws retained after burn-in.
+
+    move_distribution : tuple of float, default=(0.25, 0.25, 0.40, 0.10)
+        Proposal probabilities for the tree-structure moves
+
+        ``(grow, prune, change, swap)``.
+
+    random_state : int, default=0
+        Seed used for reproducible NumPy and backend sampling.
+
+    Attributes
+    ----------
+    y_shift : float
+        Center used to transform the response before fitting.
+
+    y_scale : float
+        Scale used to transform the response before fitting.
+
+    lambda_ : float
+        Scale parameter of the observation-variance prior after calibration.
+
+    Notes
+    -----
+    Each retained MCMC iteration stores one complete posterior forest draw. These
+    draws are used for prediction, credible intervals, partial dependence, and
+    variable-importance summaries.
     """
     nu: float
     q: float
