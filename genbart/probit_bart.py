@@ -186,7 +186,7 @@ class ProbitBart(BaseBART):
         return probs >= threshold
 
     def partial_dependence(self,
-                           variable: int | tuple,
+                           variable: int,
                            grid_samples = 100,
                            central_measure = "mean",
                            level = 0.9):
@@ -200,9 +200,8 @@ class ProbitBart(BaseBART):
 
         Parameters
         ----------
-        variable : int or tuple
-            Predictor to vary. Currently only an integer column index is implemented.
-            Tuple input is reserved for future multi-variable effect surfaces.
+        variable : int
+            Predictor to vary. 
         grid_samples : int, default=100
             Number of evenly spaced grid values between the observed minimum and maximum
             of the selected predictor.
@@ -249,6 +248,8 @@ class ProbitBart(BaseBART):
                 part_dep_preds[i] = preds["probs"]
                 part_dep_low[i] = preds["conf_int_low"]
                 part_dep_high[i] = preds["conf_int_high"]
+        else:
+            raise TypeError("variable must be an integer column index.")
 
         return {
             "prediction": part_dep_preds,

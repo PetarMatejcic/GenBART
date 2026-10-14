@@ -263,3 +263,19 @@ def test_probitbart_fit_continuous_random_high_dimensional_does_not_crash():
     assert np.all(np.isfinite(pred["conf_int_low"]))
     assert np.all(np.isfinite(pred["conf_int_high"]))
     assert np.all((0.0 <= pred["probs"]) & (pred["probs"] <= 1.0))
+
+
+def test_partial_dependence_rejects_non_integer_variable():
+    """Reject unsupported tuple specifications for partial dependence variables."""
+    X = np.arange(40, dtype=float).reshape(20, 2)
+    y = (X[:, 0] > X[:, 0].mean()).astype(int)
+
+    model = ProbitBart(
+        m=5,
+        n_burn=5,
+        n_samples=5,
+        random_state=0,
+    ).fit(X, y)
+
+    with pytest.raises(TypeError, match="integer column index"):
+        model.partial_dependence(variable=(0, 1))
