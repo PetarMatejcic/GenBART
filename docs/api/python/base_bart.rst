@@ -1,7 +1,7 @@
 BaseBART
 ========
 
-.. currentmodule:: genbart.baseBART
+.. currentmodule:: genbart.base_bart
 
 ``BaseBART`` contains shared functionality used by the public estimators.
 

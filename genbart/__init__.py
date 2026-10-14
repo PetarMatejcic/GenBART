@@ -1,4 +1,4 @@
-from .baseBART import BaseBART
+from .base_bart import BaseBART
 from .reg_bart import RegBart
 from .probit_bart import ProbitBart
 from .feature_selection import (

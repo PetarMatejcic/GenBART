@@ -18,7 +18,7 @@ from sklearn.metrics import (
     explained_variance_score,
     max_error,
 )
-from genbart.baseBART import BaseBART
+from genbart.base_bart import BaseBART
 
 
 class RegBart(BaseBART):

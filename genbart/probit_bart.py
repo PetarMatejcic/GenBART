@@ -21,7 +21,7 @@ from sklearn.metrics import (
     roc_auc_score,
     average_precision_score,
 )
-from .baseBART import BaseBART
+from .base_bart import BaseBART
 
 
 class ProbitBart(BaseBART):
