@@ -323,21 +323,27 @@ class RegBart(BaseBART):
         """Compute one-variable partial dependence.
 
         For each value on a grid spanning the observed range of the selected
-        predictor, the predictor is replaced by that value for every training
-        observation. Predictions are then averaged over the training observations
-        separately for each posterior draw.
+        predictor, that predictor is replaced by the grid value for every training
+        observation. The fitted model is then evaluated on all modified observations.
+
+        Predictions are averaged over the training observations separately for each
+        posterior draw. The resulting posterior partial-dependence draws are then
+        summarized by their mean or median and by a central credible interval.
 
         Parameters
         ----------
         variable : int
-            Predictor to vary.
+            Column index of the predictor whose partial dependence is evaluated.
+
         grid_samples : int, default=100
-            Number of evenly spaced grid values between the observed minimum and maximum
-            of the selected predictor.
+            Number of evenly spaced grid values between the observed minimum and
+            maximum of the selected predictor.
+
         central_measure : {"mean", "median"}, default="mean"
-            Posterior summary passed to ``predict`` for the point prediction.
+            Posterior summary used for the point estimate of partial dependence.
+
         level : float, default=0.9
-            Credible interval level passed to ``predict``.
+            Probability mass contained in the central credible interval.
 
         Returns
         -------
@@ -345,9 +351,41 @@ class RegBart(BaseBART):
             Dictionary containing:
 
             - ``"grid"``: predictor values at which partial dependence is evaluated.
-            - ``"prediction"``: posterior point estimate of partial dependence.
+            - ``"prediction"``: posterior mean or median partial-dependence value.
             - ``"conf_int_low"``: lower posterior credible bound.
             - ``"conf_int_high"``: upper posterior credible bound.
+
+            Each returned array has length ``grid_samples``.
+
+        Raises
+        ------
+        TypeError
+            If ``variable`` is not an integer column index.
+
+        ValueError
+            If ``central_measure`` is not ``"mean"`` or ``"median"``.
+
+        Notes
+        -----
+        For a predictor :math:`x_j`, the partial-dependence function is approximated by
+
+        .. math::
+
+            \\operatorname{PD}(x_j)
+            =
+            \\frac{1}{n}
+            \\sum_{i=1}^{n}
+            f(x_j, x_{i,-j})
+
+        where the average is taken over the observed training values of all remaining
+        predictors.
+
+        This preserves the empirical distribution of the other predictors rather than
+        fixing them to a single reference value.
+
+        The credible interval describes posterior uncertainty in the partial-
+        dependence function. It does not represent variability across individual
+        observations.
         """
         if not isinstance(variable, int):
             raise TypeError("variable must be an integer column index.")
@@ -393,7 +431,8 @@ class RegBart(BaseBART):
             "conf_int_low": part_dep_low,
             "conf_int_high": part_dep_high,
         }
-    
+
+
     def evaluate(self, X, y, central_measure: str = "mean"):
         """Evaluate regression predictive performance.
 
