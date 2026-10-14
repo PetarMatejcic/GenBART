@@ -397,19 +397,59 @@ class RegBart(BaseBART):
     def evaluate(self, X, y, central_measure: str = "mean"):
         """Evaluate regression predictive performance.
 
+        Predictions are computed using :meth:`predict` with credible intervals
+        disabled. All reported metrics therefore evaluate the posterior point
+        prediction determined by ``central_measure``; posterior uncertainty is not
+        included in the metrics.
+
         Parameters
         ----------
         X : array-like
-            Feature matrix or single observation.
+            Predictor values for the observations to evaluate.
+
         y : array-like
-            Observed response values.
+            Observed continuous response values. Must contain one value for each
+            observation in ``X``.
+
         central_measure : {"mean", "median"}, default="mean"
-            Posterior summary used for point prediction.
+            Posterior summary used as the point prediction before computing the
+            regression metrics.
 
         Returns
         -------
-        out : dict
-            Dictionary of scalar regression metrics.
+        dict
+            Dictionary containing:
+
+            - ``"n"``: number of evaluated observations.
+            - ``"central_measure"``: posterior summary used for prediction.
+            - ``"mse"``: mean squared error.
+            - ``"rmse"``: root mean squared error.
+            - ``"mae"``: mean absolute error.
+            - ``"median_absolute_error"``: median absolute error.
+            - ``"max_error"``: largest absolute residual.
+            - ``"r2"``: coefficient of determination.
+            - ``"explained_variance"``: explained-variance score.
+            - ``"residual_mean"``: mean of ``y - prediction``.
+            - ``"residual_std"``: sample standard deviation of the residuals.
+            - ``"residual_median"``: median residual.
+            - ``"residual_min"``: minimum residual.
+            - ``"residual_max"``: maximum residual.
+
+        Raises
+        ------
+        ValueError
+            If ``y`` is not one-dimensional, if predictions are not one-dimensional,
+            or if ``X`` and ``y`` contain different numbers of observations.
+
+        Notes
+        -----
+        The residual convention used throughout this method is
+
+            residual = observed response - predicted response.
+
+        Metrics such as MSE, MAE, and R-squared describe point-prediction
+        performance only. Use :meth:`predict` or :meth:`posterior_sample_draws` when
+        posterior uncertainty is required.
         """
         y_true = np.asarray(y, dtype=float)
         if y_true.ndim == 0:
