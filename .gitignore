@@ -1,12 +1,26 @@
-.venv*
-.pytest_cache
-GenTest/__pycache__
-*.pyc
-.pytest_cache
+# Virtual environments
+.venv*/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Packaging and build artifacts
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Documentation build artifacts
+docs/_build/
+docs/_doxygen/
+
+# Project-generated files
 timings/
 genbart/profilestats.py
-.vscode/*
-build/*
-docs/_build/
-docs/_doxygen
-docs/_doxygen/.ipynb_checkpoints/
+
+# Editor settings
+.vscode/
