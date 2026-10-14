@@ -8,4 +8,5 @@ genbart/profilestats.py
 .vscode/*
 build/*
 docs/_build/
-docs/_doxygen/
+docs/_doxygen
+docs/_doxygen/.ipynb_checkpoints/
