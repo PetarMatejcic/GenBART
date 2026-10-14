@@ -1,5 +1,7 @@
 # GenBART
 
+[![Tests](https://github.com/PetarMatejcic/GenBART/actions/workflows/tests.yml/badge.svg)](https://github.com/PetarMatejcic/GenBART/actions/workflows/tests.yml)
+
 GenBART is a from-scratch Python/C++ implementation of **Bayesian Additive Regression Trees (BART)**.
 
 **Quick links:** &nbsp; [Documentation](https://petarmatejcic.github.io/GenBART/) · [Examples](notebooks/) · [Reference paper](https://doi.org/10.1214/09-AOAS285)
