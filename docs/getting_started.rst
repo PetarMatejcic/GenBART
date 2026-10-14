@@ -68,11 +68,25 @@ credible intervals.
 Variable importance
 -------------------
 
-Both regression and classification models expose variable inclusion summaries
-through ``variable_importance``.
+Both regression and classification models expose variable-importance summaries
+through :meth:`genbart.base_bart.BaseBART.variable_inclusion`.
+
+Standard variable inclusion proportions are returned by default:
 
 .. code-block:: python
 
-   importance = model.variable_importance()
+   raw_importance = model.variable_inclusion()
 
-The returned array has one value per predictor.
+GenBART also provides log marginal-likelihood-weighted importance:
+
+.. code-block:: python
+
+   logml_importance = model.variable_inclusion(kind="logml")
+
+Both results are one-dimensional arrays with one importance value per
+predictor. The ``"raw"`` statistic measures the proportion of tree splits
+using each predictor, while ``"logml"`` weights split occurrences by their
+positive log marginal-likelihood contribution.
+
+Draw-level importance values are available through
+:meth:`genbart.base_bart.BaseBART.variable_inclusion_draws`.
