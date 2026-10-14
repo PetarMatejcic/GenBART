@@ -146,7 +146,7 @@ class ProbitBart(BaseBART):
             level: Credible interval level for posterior probability intervals.
 
         Returns:
-            A dictionary containing ``"prediction"``, ``"conf_int_low"``, and
+            A dictionary containing ``"probs"``, ``"conf_int_low"``, and
             ``"conf_int_high"``. Values are scalars for a single multi-feature row and
             NumPy arrays for multiple rows.
 
@@ -161,11 +161,11 @@ class ProbitBart(BaseBART):
         conf_low, conf_high = np.quantile(prob_draws, [a/2.0, 1 - a/2.0], axis=0)
 
         if probs.shape[0] == 1:
-            out["prediction"] = probs[0]
+            out["probs"] = probs[0]
             out["conf_int_low"] = conf_low[0]
             out["conf_int_high"] = conf_high[0]
         else:
-            out["prediction"] = probs
+            out["probs"] = probs
             out["conf_int_low"] = conf_low
             out["conf_int_high"] = conf_high
 
@@ -182,7 +182,7 @@ class ProbitBart(BaseBART):
             A Boolean scalar or NumPy array indicating whether each posterior mean class
             probability is greater than or equal to ``threshold``.
         """
-        probs = self.predict_probs(X)["prediction"]
+        probs = self.predict_probs(X)["probs"]
         return probs >= threshold
 
     def partial_dependence(self,
@@ -246,7 +246,7 @@ class ProbitBart(BaseBART):
                 average_X[variable] = val
                 preds = self.predict_probs(average_X,
                                            level=level)
-                part_dep_preds[i] = preds["prediction"]
+                part_dep_preds[i] = preds["probs"]
                 part_dep_low[i] = preds["conf_int_low"]
                 part_dep_high[i] = preds["conf_int_high"]
 

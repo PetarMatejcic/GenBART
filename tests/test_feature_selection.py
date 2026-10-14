@@ -339,7 +339,7 @@ def test_probitbart_predict_and_posterior_sample_draws_api():
     model = ProbitBart(**small_probitbart_params(), random_state=11)
     model.fit(X, y)
 
-    prob = model.predict_probs(X[:4])["prediction"]
+    prob = model.predict_probs(X[:4])["probs"]
     label = model.predict(X[:4])
     draws = model.posterior_sample_draws(X[:4])
 
