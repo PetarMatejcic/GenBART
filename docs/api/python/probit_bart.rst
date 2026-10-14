@@ -31,3 +31,5 @@ Methods
 .. automethod:: ProbitBart.variable_inclusion
 
 .. automethod:: ProbitBart.variable_inclusion_draws
+
+.. automethod:: ProbitBart.get_params

@@ -14,4 +14,8 @@ Class
 Methods
 -------
 
+.. automethod:: BaseBART.get_params
+
 .. automethod:: BaseBART.variable_inclusion
+
+.. automethod:: BaseBART.variable_inclusion_draws

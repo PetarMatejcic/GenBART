@@ -13,34 +13,53 @@ from genbart._backend import PackedForest, _BackfittingEngine
 
 
 class BaseBART:
-    """Base class for BART estimators with shared MCMC and forest storage logic.
+    """Shared implementation base for GenBART estimators.
 
-    The class stores common hyperparameters, initializes the backend forest,
-    runs backend backfitting sweeps, serializes posterior tree draws, and exposes
-    variable-importance summaries. Subclasses are responsible for defining the
-    model-specific likelihood, fitting routine, response transformation, and
-    prediction API.
+    ``BaseBART`` contains the MCMC infrastructure and posterior storage shared by
+    :class:`genbart.reg_bart.RegBart` and
+    :class:`genbart.probit_bart.ProbitBart`.
 
-    Attributes:
-        m: Number of trees in each live forest.
-        alpha: Prior probability scaling parameter for node splitting.
-        beta: Prior depth penalty parameter for node splitting.
-        k: Shrinkage parameter used by subclasses to set the terminal-node prior.
-        n_burn: Number of burn-in MCMC iterations.
-        n_samples: Number of posterior forest draws to retain.
-        move_distribution: Probabilities for grow, prune, change, and swap moves.
-        rng: NumPy random generator seeded from ``random_state``.
-        random_state: Seed passed to NumPy and the backend backfitting engine.
-        X: Training feature matrix.
-        n: Number of training observations.
-        p: Number of predictors.
-        sigma2: Observation variance used during backfitting.
-        sigma_mu2: Terminal-node prior variance used during backfitting.
-        y_work: Working response variable used by the model-specific sampler.
-        residuals: Current partial residual vector updated during backfitting.
-        packed_forest: Packed posterior forest draws used for prediction.
-        extreme_values: Per-feature minimum and maximum values from training data.
-        engine: Backend object that owns and updates the live forest.
+    It manages the common BART hyperparameters, compiled backfitting engine,
+    posterior forest storage, and variable-importance summaries. Model-specific
+    likelihoods, response handling, fitting, and prediction are implemented by
+    the concrete estimator subclasses.
+
+    ``BaseBART`` is primarily an implementation base and is not intended to be
+    fitted or instantiated directly by users.
+
+    Parameters
+    ----------
+    m : int, default=200
+        Number of trees in the BART ensemble.
+
+    alpha : float, default=0.95
+        Base probability parameter in the tree-structure prior.
+
+    beta : float, default=2.0
+        Depth penalty in the tree-structure prior.
+
+    k : float, default=2.0
+        Shrinkage parameter used by subclasses to determine terminal-node prior
+        variance.
+
+    n_burn : int, default=200
+        Number of initial MCMC iterations discarded as burn-in.
+
+    n_samples : int, default=1000
+        Number of posterior forest draws retained after burn-in.
+
+    move_distribution : tuple of float, default=(0.25, 0.25, 0.40, 0.10)
+        Proposal probabilities for ``(grow, prune, change, swap)`` tree moves.
+
+    random_state : int, default=0
+        Seed used for reproducible NumPy and backend sampling.
+
+    Notes
+    -----
+    Users normally interact with :class:`genbart.reg_bart.RegBart` or
+    :class:`genbart.probit_bart.ProbitBart`. The main user-facing methods inherited
+    from this class are :meth:`get_params`, :meth:`variable_inclusion`, and
+    :meth:`variable_inclusion_draws`.
     """
     m: int
     alpha: float
@@ -113,11 +132,32 @@ class BaseBART:
         self._logml_vi_draws = None
 
     def get_params(self):
-        """Return BART model parameters.
-        
-        Returns:
-            A dictionary containing model parameters: m, alpha, beta, k, n_burn, n_samples,
-            move_distribution and random_state.
+        """Return the estimator's constructor parameters.
+
+        Returns
+        -------
+        dict
+            Dictionary containing the common BART parameters:
+
+            - ``"m"``: number of trees.
+            - ``"alpha"``: base tree-splitting prior parameter.
+            - ``"beta"``: tree-depth penalty.
+            - ``"k"``: terminal-node shrinkage parameter.
+            - ``"n_burn"``: number of burn-in iterations.
+            - ``"n_samples"``: number of retained posterior draws.
+            - ``"move_distribution"``: grow, prune, change, and swap proposal
+            probabilities.
+            - ``"random_state"``: random seed.
+
+        Notes
+        -----
+        Concrete estimators may extend this dictionary with model-specific
+        parameters. In particular, :class:`genbart.reg_bart.RegBart` also returns
+        ``"nu"`` and ``"q"``.
+
+        The returned dictionary contains model configuration rather than fitted
+        state. Training data, posterior forests, and fitted variance quantities are
+        not included.
         """
         return {
             "m": self.m,

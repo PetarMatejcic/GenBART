@@ -27,3 +27,5 @@ Methods
 .. automethod:: RegBart.partial_dependence
 
 .. automethod:: RegBart.evaluate
+
+.. automethod:: RegBart.get_params
