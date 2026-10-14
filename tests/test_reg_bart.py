@@ -231,3 +231,39 @@ def test_partial_dependence_rejects_non_integer_variable():
 
     with pytest.raises(TypeError, match="integer column index"):
         model.partial_dependence(variable=(0, 1))
+
+
+def test_evaluate_returns_finite_regression_metrics():
+    """Return finite regression performance metrics for fitted predictions."""
+    X, y = _make_regression_data(n=80, p=3, seed=20)
+    model = _fit_small_model(X, y, random_state=20)
+
+    result = model.evaluate(X, y)
+
+    expected_keys = {
+        "n",
+        "central_measure",
+        "mse",
+        "rmse",
+        "mae",
+        "median_absolute_error",
+        "max_error",
+        "r2",
+        "explained_variance",
+        "residual_mean",
+        "residual_std",
+        "residual_median",
+        "residual_min",
+        "residual_max",
+    }
+
+    assert set(result) == expected_keys
+    assert result["n"] == len(y)
+    assert result["central_measure"] == "mean"
+
+    numeric = [
+        value
+        for key, value in result.items()
+        if key not in {"n", "central_measure"}
+    ]
+    assert np.all(np.isfinite(numeric))
