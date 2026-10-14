@@ -7,10 +7,47 @@ import numpy as np
 
 @dataclass
 class ThresholdResult:
-    """Selection output for one thresholding rule.
+    """Selection result for one permutation-null thresholding rule.
 
-    A ThresholdResult stores the observed feature-importance values, the
-    threshold values used by one selection method, and the final selected mask.
+    A ``ThresholdResult`` combines the observed variable-importance values with
+    the thresholds produced by one selection rule. A feature is selected when its
+    observed importance is strictly greater than its corresponding threshold.
+
+    Attributes
+    ----------
+    method : str
+        Name of the thresholding rule.
+
+    feature_names : list of str
+        Predictor names in the same order as the importance arrays.
+
+    importance : np.ndarray
+        Observed variable-importance values with shape ``(p,)``.
+
+    thresholds : np.ndarray
+        Selection thresholds with shape ``(p,)``.
+
+        Some methods use feature-specific thresholds, while ``"global_max"``
+        assigns the same threshold to every feature.
+
+    selected : np.ndarray
+        Boolean array with shape ``(p,)`` indicating which predictors were
+        selected.
+
+    quantile : float
+        Null-distribution quantile associated with the configured ``alpha``.
+
+    extra : dict
+        Method-specific diagnostic information.
+
+    Notes
+    -----
+    Selection always uses a strict comparison:
+
+        importance > threshold
+
+    A feature whose importance is exactly equal to its threshold is therefore not
+    selected.
     """
 
     method: str
@@ -42,12 +79,44 @@ class ThresholdResult:
         return int(np.sum(self.selected))
 
     def threshold_for(self, feature: str | int) -> float:
-        """Return the threshold assigned to one feature."""
+        """Return the selection threshold for one feature.
+
+        Parameters
+        ----------
+        feature : str or int
+            Feature name or zero-based column index.
+
+        Returns
+        -------
+        float
+            Threshold assigned to the requested feature.
+
+        Raises
+        ------
+        ValueError
+            If the feature name is unknown or the index is out of range.
+        """
         j = self._feature_index(feature)
         return float(self.thresholds[j])
 
     def importance_for(self, feature: str | int) -> float:
-        """Return the observed importance value for one feature."""
+        """Return the observed importance for one feature.
+
+        Parameters
+        ----------
+        feature : str or int
+            Feature name or zero-based column index.
+
+        Returns
+        -------
+        float
+            Observed variable-importance value.
+
+        Raises
+        ------
+        ValueError
+            If the feature name is unknown or the index is out of range.
+        """
         j = self._feature_index(feature)
         return float(self.importance[j])
 
@@ -66,7 +135,49 @@ class ThresholdResult:
 
 @dataclass
 class VariableSelectionResult:
-    """Result returned by permutation-null BART variable selection."""
+    """Permutation-null variable-selection result for one importance definition.
+
+    ``VariableSelectionResult`` stores the observed importance estimates, their
+    variation across repeated observed-response fits, the permutation-null
+    importance distribution, and the results of every supported thresholding
+    rule.
+
+    One result object corresponds to one importance definition: either standard
+    split-count importance or log marginal-likelihood-weighted importance.
+
+    Attributes
+    ----------
+    feature_names : list of str
+        Predictor names.
+
+    importance : np.ndarray
+        Mean observed importance across repeated BART fits, with shape ``(p,)``.
+
+    importance_repeats : np.ndarray
+        Importance values from the individual observed-response fits, with shape
+        ``(n_repeats, p)``.
+
+    importance_sd : np.ndarray
+        Sample standard deviation of observed importance across repeated fits,
+        with shape ``(p,)``.
+
+    null_importance : np.ndarray
+        Permutation-null importance matrix with shape
+        ``(n_permutations, p)``.
+
+        Each row corresponds to one permuted response. When ``n_repeats > 1``,
+        that row is the mean importance across the repeated BART fits for that
+        permutation.
+
+    methods : dict[str, ThresholdResult]
+        Threshold results for ``"local"``, ``"global_max"``, and ``"global_se"``.
+
+    default_method : str
+        Thresholding rule used when a method argument is omitted.
+
+    importance_kind : {"raw", "logml"}
+        Variable-importance definition represented by this result.
+    """
 
     feature_names: list[str]
     importance: np.ndarray
@@ -102,17 +213,66 @@ class VariableSelectionResult:
         return self._method_result(method).selected_mask()
 
     def thresholds(self, method: str | None = None) -> np.ndarray:
-        """Return thresholds for one thresholding method."""
+        """Return selection thresholds for one thresholding method.
+
+        Parameters
+        ----------
+        method : {"local", "global_max", "global_se"}, optional
+            Thresholding rule. If omitted, ``default_method`` is used.
+
+        Returns
+        -------
+        np.ndarray
+            Copy of the feature thresholds with shape ``(p,)``.
+        """
         return self._method_result(method).thresholds.copy()
 
     def ranking(self) -> np.ndarray:
-        """Return feature indices sorted by decreasing observed importance."""
+        """Return feature indices ordered by decreasing observed importance.
+
+        Returns
+        -------
+        np.ndarray
+            Integer feature indices from highest to lowest mean observed importance.
+
+        Notes
+        -----
+        The ranking depends only on ``importance`` and is therefore independent of the
+        chosen thresholding method.
+        """
         return np.argsort(-self.importance)
 
     def to_frame(self, method: str | None = None) -> list[dict]:
-        """Return a row-wise summary sorted by decreasing importance.
+        """Return a row-wise feature-selection summary.
 
-        This returns a list of dictionaries.
+        Parameters
+        ----------
+        method : {"local", "global_max", "global_se"}, optional
+            Thresholding rule used for the threshold and selected columns. If omitted,
+            ``default_method`` is used.
+
+        Returns
+        -------
+        list of dict
+            One dictionary per feature, sorted by decreasing observed importance.
+
+            Each row contains:
+
+            - ``"rank"``
+            - ``"feature"``
+            - ``"importance"``
+            - ``"importance_sd"``
+            - ``"null_mean"``
+            - ``"null_sd"``
+            - ``"threshold"``
+            - ``"selected"``
+            - ``"method"``
+            - ``"importance_kind"``
+
+        Notes
+        -----
+        Despite the method name, this function currently returns a list of
+        dictionaries rather than a pandas DataFrame.
         """
         method_result = self._method_result(method)
         order = self.ranking()
@@ -137,7 +297,20 @@ class VariableSelectionResult:
         return rows
 
     def summary(self, method: str | None = None) -> dict:
-        """Return a compact result summary."""
+        """Return a compact summary of the selection result.
+
+        Parameters
+        ----------
+        method : {"local", "global_max", "global_se"}, optional
+            Thresholding rule. If omitted, ``default_method`` is used.
+
+        Returns
+        -------
+        dict
+            Dictionary containing the selected method and importance definition,
+            number of features, number and names of selected features, and the
+            highest-ranked feature and its importance.
+        """
         method_result = self._method_result(method)
         top_idx = int(np.argmax(self.importance))
 
@@ -152,7 +325,19 @@ class VariableSelectionResult:
         }
 
     def compare_methods(self) -> list[dict]:
-        """Return selected-feature summaries for all thresholding methods."""
+        """Compare selections produced by all thresholding rules.
+
+        Returns
+        -------
+        list of dict
+            One row per thresholding method containing the method name, number of
+            selected features, and selected feature names.
+
+        Notes
+        -----
+        All methods are applied to the same observed and permutation-null importance
+        values. Only the thresholding rule changes.
+        """
         rows = []
 
         for method, method_result in self.methods.items():
@@ -179,7 +364,16 @@ class VariableSelectionResult:
 
 @dataclass
 class PredictiveSelectionResult:
-    """Result returned by predictive-degradation BART feature selection."""
+    """Result returned by experimental predictive-degradation selection.
+
+    This container stores degradation summaries and feature selections produced by
+    :class:`BartPredictiveSelector`.
+
+    Notes
+    -----
+    ``BartPredictiveSelector`` is experimental. Consequently, this result
+    container and its attributes may change or be removed in a future release.
+    """
 
     feature_names: list[str]
     importance_mean: np.ndarray

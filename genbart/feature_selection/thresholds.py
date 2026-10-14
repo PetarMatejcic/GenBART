@@ -15,7 +15,55 @@ def local_threshold(
     null_importance: np.ndarray,
     alpha: float,
 ) -> ThresholdResult:
-    """Compare each feature against its own permutation-null quantile."""
+    """Apply feature-specific permutation-null thresholds.
+
+    For each feature, the threshold is the ``1 - alpha`` quantile of that
+    feature's own permutation-null importance distribution.
+
+    A feature is selected when its observed importance is strictly greater than
+    this threshold.
+
+    Parameters
+    ----------
+    feature_names : list of str
+        Predictor names.
+
+    importance : np.ndarray
+        Observed importance values with shape ``(p,)``.
+
+    null_importance : np.ndarray
+        Permutation-null importance values with shape
+        ``(n_permutations, p)``.
+
+    alpha : float
+        Upper-tail probability. Must lie strictly between 0 and 1.
+
+    Returns
+    -------
+    ThresholdResult
+        Feature-specific thresholds and selection decisions.
+
+    Notes
+    -----
+    For feature :math:`j`, the threshold is
+
+    .. math::
+
+        T_j
+        =
+        Q_{1-\\alpha}
+        \\left(
+        I^{\\mathrm{null}}_{1j},
+        \\ldots,
+        I^{\\mathrm{null}}_{Bj}
+        \\right),
+
+    where :math:`B` is the number of response permutations.
+
+    The local rule treats each feature's null distribution separately and does
+    not adjust its threshold according to large null importance values observed
+    for other features.
+    """
     importance, null_importance = _validate_threshold_inputs(
         importance=importance,
         null_importance=null_importance,
@@ -45,7 +93,55 @@ def global_max_threshold(
     null_importance: np.ndarray,
     alpha: float,
 ) -> ThresholdResult:
-    """Compare each feature against a global max-null threshold."""
+    """Apply a common threshold based on maximum null importance.
+
+    For every response permutation, the largest importance value across all
+    features is recorded. The common threshold is the ``1 - alpha`` quantile of
+    these permutation-wise maxima.
+
+    Parameters
+    ----------
+    feature_names : list of str
+        Predictor names.
+
+    importance : np.ndarray
+        Observed importance values with shape ``(p,)``.
+
+    null_importance : np.ndarray
+        Permutation-null importance matrix with shape
+        ``(n_permutations, p)``.
+
+    alpha : float
+        Upper-tail probability.
+
+    Returns
+    -------
+    ThresholdResult
+        Result using the same threshold for every feature.
+
+    Notes
+    -----
+    For permutation :math:`b`, define
+
+    .. math::
+
+        M_b = \\max_j I^{\\mathrm{null}}_{bj}.
+
+    The common threshold is
+
+    .. math::
+
+        T
+        =
+        Q_{1-\\alpha}(M_1, \\ldots, M_B).
+
+    Each feature is selected when its observed importance is strictly greater
+    than ``T``.
+
+    Because the threshold is based on the largest null importance within each
+    permutation, this rule is generally more conservative than comparing each
+    feature only with its own null distribution.
+    """
     importance, null_importance = _validate_threshold_inputs(
         importance=importance,
         null_importance=null_importance,
@@ -80,16 +176,60 @@ def global_se_threshold(
     null_importance: np.ndarray,
     alpha: float,
 ) -> ThresholdResult:
-    """Compare each feature against the Bleich et al. global-SE threshold.
+    """Apply the global-standard-error permutation threshold.
 
-    The global-SE criterion chooses the smallest common nonnegative multiplier
-    C* such that, for every feature, more than 1 - alpha of its permutation-null
-    importance values lie below
+    The method estimates a null mean and standard deviation for every feature and
+    uses one common nonnegative standardized multiplier across features.
 
-        null_mean_j + C* * null_sd_j.
+    The multiplier is chosen so that, for every feature, strictly more than
+    ``1 - alpha`` of its permutation-null importance values are covered by the
+    resulting threshold.
 
-    Features are selected when their observed importance is strictly greater
-    than the resulting feature-specific threshold.
+    Parameters
+    ----------
+    feature_names : list of str
+        Predictor names.
+
+    importance : np.ndarray
+        Observed importance values with shape ``(p,)``.
+
+    null_importance : np.ndarray
+        Permutation-null importance matrix with shape
+        ``(n_permutations, p)``.
+
+    alpha : float
+        Upper-tail probability.
+
+    Returns
+    -------
+    ThresholdResult
+        Feature-specific thresholds constructed using one common standardized
+        multiplier.
+
+    Notes
+    -----
+    Let :math:`\\mu_j` and :math:`s_j` denote the mean and sample standard
+    deviation of the null importance for feature :math:`j`.
+
+    The method chooses the smallest nonnegative multiplier :math:`C^*` satisfying
+    the required null coverage for every feature, and defines
+
+    .. math::
+
+        T_j = \\mu_j + C^* s_j.
+
+    Features are selected when
+
+    .. math::
+
+        I_j > T_j.
+
+    The same :math:`C^*` is shared across features, while the final thresholds
+    remain feature-specific because their null means and standard deviations can
+    differ.
+
+    For a feature with zero null standard deviation, its threshold reduces to its
+    null mean.
     """
     importance, null_importance = _validate_threshold_inputs(
         importance=importance,
@@ -163,7 +303,28 @@ def build_threshold_results(
     null_importance: np.ndarray,
     alpha: float,
 ) -> dict[str, ThresholdResult]:
-    """Build all supported thresholding results."""
+    """Apply all supported permutation-null thresholding rules.
+
+    Parameters
+    ----------
+    feature_names : list of str
+        Predictor names.
+
+    importance : np.ndarray
+        Observed importance values with shape ``(p,)``.
+
+    null_importance : np.ndarray
+        Permutation-null importance values with shape
+        ``(n_permutations, p)``.
+
+    alpha : float
+        Upper-tail probability used by each rule.
+
+    Returns
+    -------
+    dict[str, ThresholdResult]
+        Dictionary with keys ``"local"``, ``"global_max"``, and ``"global_se"``.
+    """
     return {
         "local": local_threshold(
             feature_names=feature_names,
