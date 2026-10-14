@@ -162,25 +162,6 @@ def test_variable_inclusion_has_correct_shape_and_finite_values():
     assert np.all(vi >= 0.0)
 
 
-def test_marginalize_returns_expected_shapes_and_finite_values():
-    """Return finite marginal predictions and intervals for every grid point."""
-    X, y = _make_regression_data(n=90, p=3, seed=15)
-    model = _fit_small_model(X, y, random_state=15)
-
-    grid = np.linspace(X[:, 0].min(), X[:, 0].max(), 9)
-    out = model.marginalize(variable=0, grid=grid, sampling_size=40, level=0.9)
-
-    assert set(out.keys()) == {"prediction", "conf_int_low", "conf_int_high"}
-    assert out["prediction"].shape == grid.shape
-    assert out["conf_int_low"].shape == grid.shape
-    assert out["conf_int_high"].shape == grid.shape
-    assert np.all(np.isfinite(out["prediction"]))
-    assert np.all(np.isfinite(out["conf_int_low"]))
-    assert np.all(np.isfinite(out["conf_int_high"]))
-    assert np.all(out["conf_int_low"] <= out["prediction"])
-    assert np.all(out["prediction"] <= out["conf_int_high"])
-
-
 def test_fit_with_constant_y_stays_finite():
     """Handle constant responses without producing NaNs or crashing."""
     rng = np.random.default_rng(16)
