@@ -18,6 +18,8 @@ Methods
 
 .. automethod:: RegBart.predict
 
+.. automethod:: RegBart.posterior_sample_draws
+
 .. automethod:: RegBart.partial_dependence
 
 .. automethod:: RegBart.evaluate

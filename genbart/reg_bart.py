@@ -261,7 +261,46 @@ class RegBart(BaseBART):
             return out
         
     def posterior_sample_draws(self, X):
-        """Return posterior regression-function draws on the original response scale."""
+        """Return posterior draws of the regression function.
+
+        Each retained posterior forest is evaluated at ``X``. The returned array
+        therefore contains draws of
+
+            f(x) = E[Y | X = x]
+
+        on the original response scale.
+
+        Parameters
+        ----------
+        X : array-like
+            Predictor values at which to evaluate the fitted model.
+
+            For a model with multiple predictors, a one-dimensional array is treated
+            as a single observation. For a model with one predictor, a one-dimensional
+            array is treated as multiple observations.
+
+        Returns
+        -------
+        np.ndarray
+            Array with shape ``(n_samples, n_observations)``.
+
+            Each row corresponds to one retained posterior forest draw and each column
+            corresponds to one observation in ``X``.
+
+        Raises
+        ------
+        RuntimeError
+            If the model has not been fitted.
+
+        Notes
+        -----
+        These are posterior draws of the regression function only. They do not
+        include observation noise, so they should not be interpreted as posterior
+        predictive draws for future observed responses.
+
+        This method is useful when custom posterior summaries are needed instead of
+        the mean, median, and credible intervals provided by :meth:`predict`.
+        """
         if self.packed_forest is None:
             raise RuntimeError("Model not fitted.")
 
