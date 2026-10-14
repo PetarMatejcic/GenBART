@@ -279,3 +279,52 @@ def test_partial_dependence_rejects_non_integer_variable():
 
     with pytest.raises(TypeError, match="integer column index"):
         model.partial_dependence(variable=(0, 1))
+
+
+def test_evaluate_returns_finite_classification_metrics():
+    """Return finite classification performance metrics for fitted probabilities."""
+    X, y = _make_classification_data(n=120, p=4, seed=21)
+    model = _fit_small_model(X, y, random_state=21)
+
+    result = model.evaluate(X, y)
+
+    expected_keys = {
+        "n",
+        "threshold",
+        "accuracy",
+        "balanced_accuracy",
+        "sensitivity",
+        "specificity",
+        "precision",
+        "f1",
+        "brier_score",
+        "log_loss",
+        "tn",
+        "fp",
+        "fn",
+        "tp",
+        "roc_auc",
+        "average_precision",
+    }
+
+    assert set(result) == expected_keys
+    assert result["n"] == len(y)
+    assert result["threshold"] == pytest.approx(0.5)
+
+    bounded_metrics = [
+        "accuracy",
+        "balanced_accuracy",
+        "sensitivity",
+        "specificity",
+        "precision",
+        "f1",
+        "roc_auc",
+        "average_precision",
+    ]
+
+    for key in bounded_metrics:
+        assert 0.0 <= result[key] <= 1.0
+
+    assert result["brier_score"] >= 0.0
+    assert result["log_loss"] >= 0.0
+    assert result["tn"] + result["fp"] + result["fn"] + result["tp"] == len(y)
