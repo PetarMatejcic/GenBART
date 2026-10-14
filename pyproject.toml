@@ -5,12 +5,44 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "genbart"
 version = "0.1.0"
+description = "A from-scratch Python/C++ implementation of Bayesian Additive Regression Trees."
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "PetarMatejcic" }
+]
+keywords = [
+    "BART",
+    "Bayesian statistics",
+    "machine learning",
+    "regression trees",
+    "MCMC",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering",
+]
+
 dependencies = [
     "numpy",
     "scipy",
-    "scikit-learn"
+    "scikit-learn",
 ]
+
+[project.urls]
+Homepage = "https://github.com/PetarMatejcic/GenBART"
+Documentation = "https://petarmatejcic.github.io/GenBART/"
+Source = "https://github.com/PetarMatejcic/GenBART"
+Issues = "https://github.com/PetarMatejcic/GenBART/issues"
 
 [tool.scikit-build]
 wheel.packages = ["genbart"]
