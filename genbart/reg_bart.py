@@ -284,8 +284,6 @@ class RegBart(BaseBART):
                             grid_samples)
             average_X = self.X.mean(axis=0)
             for i, val in enumerate(grid):
-                print(average_X.shape)
-                print(val.shape)
                 average_X[variable] = val
                 preds = self.predict(average_X,
                                      central_measure=central_measure,
