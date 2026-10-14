@@ -66,6 +66,16 @@ dl.cpp.function {
     margin-bottom: 1.5rem;
 }
 
+/* Visually separate long API method entries */
+dl.py.method {
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(127, 127, 127, 0.28);
+}
+
+/* Keep the method signature close to its own documentation */
+dl.py.method > dt.sig {
+    margin-bottom: 0.8rem;
+}
 
 /* Make API signatures stand out without being too loud */
 dt.sig,
