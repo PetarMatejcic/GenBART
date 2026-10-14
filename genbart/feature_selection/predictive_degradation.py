@@ -26,17 +26,62 @@ VALID_LOSSES = {
 
 
 class BartPredictiveSelector:
-    """Predictive-degradation feature selector for BART models.
+    """Experimental predictive-degradation feature selector for BART models.
+
+    ``BartPredictiveSelector`` measures how predictive loss changes when individual
+    features are permuted in evaluation data.
 
     The selector fits repeated BART models, computes a baseline predictive loss,
-    then permutes each feature column and measures how much the predictive loss
-    increases.
+    then permutes each feature and records the resulting increase or decrease in
+    loss. Features can be selected according to how consistently permutation
+    causes positive predictive degradation.
 
-    A feature is selected when:
+    Parameters
+    ----------
+    model_cls : callable
+        BART estimator class or compatible factory.
 
-    - predictive degradation is positive in at least ``selection_probability`` of
-      degradation samples; and
-    - mean degradation is greater than ``min_mean_degradation``.
+    model_params : dict, optional
+        Constructor arguments passed to each repeated BART model.
+
+    task : {"classification", "regression"}, default="classification"
+        Type of prediction problem.
+
+    loss_metric : str, default="brier"
+        Predictive loss used to measure degradation. Classification supports
+        ``"brier"`` and ``"log_loss"``; regression supports ``"mse"`` and
+        ``"rmse"``.
+
+    n_repeats : int, default=3
+        Number of independently fitted BART models.
+
+    n_permutations : int, default=5
+        Number of feature permutations performed for each fitted model.
+
+    selection_probability : float, default=0.95
+        Required fraction of positive degradation samples for selection.
+
+    min_mean_degradation : float, default=0.0
+        Minimum required mean increase in predictive loss.
+
+    use_posterior_draws : bool, default=False
+        Whether degradation is evaluated separately for individual posterior draws
+        instead of using the posterior mean prediction.
+
+    random_state : int or None, optional
+        Seed controlling repeated fits and feature permutations.
+
+    verbose : bool, default=False
+        Whether to print fitting progress.
+
+    Notes
+    -----
+    This selector is experimental. Its API and selection procedure may change or
+    be removed in a future version of GenBART.
+
+    It is included primarily as an exploratory alternative to
+    :class:`BartVariableSelector` and should not currently be considered part of
+    the package's primary feature-selection workflow.
     """
 
     def __init__(

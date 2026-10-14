@@ -26,6 +26,8 @@ Methods
 
 .. automethod:: BartVariableSelector.fit
 
+.. automethod:: BartVariableSelector.get_result
+
 .. automethod:: BartVariableSelector.selected_features
 
 .. automethod:: BartVariableSelector.selected_indices

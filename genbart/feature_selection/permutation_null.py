@@ -22,17 +22,87 @@ from .utils import (
 class BartVariableSelector:
     """Permutation-null variable selector for BART models.
 
-    The selector fits repeated BART models on the observed response, extracts
-    variable-inclusion importance values, then fits repeated BART models on
-    permuted responses to estimate a null importance distribution.
+    ``BartVariableSelector`` compares observed BART variable importance with the
+    importance that would be expected after destroying the relationship between
+    the predictors and response.
 
-    Supported thresholding rules are:
+    For the observed response, ``n_repeats`` independent BART models are fitted
+    and their variable-importance vectors are averaged.
 
-    - ``"local"``
-    - ``"global_max"``
-    - ``"global_se"``
+    For each of ``n_permutations`` null datasets, the response is randomly
+    permuted and ``n_repeats`` BART models are fitted. Their importance vectors
+    are averaged to produce one permutation-null importance vector.
+
+    Both standard split-count importance and log marginal-likelihood-weighted
+    importance are computed during the same fitting procedure.
+
+    Parameters
+    ----------
+    model_cls : callable
+        BART estimator class or compatible factory.
+
+        Fresh model instances are created repeatedly during selection. The model
+        must support ``fit(X, y)`` and ``variable_inclusion(kind=...)`` and must
+        accept ``random_state`` as a constructor argument.
+
+    model_params : dict, optional
+        Constructor arguments passed to each newly created BART model.
+
+        ``random_state`` is controlled internally by the selector and overrides
+        any value supplied here.
+
+    n_permutations : int, default=20
+        Number of independently permuted response datasets used to construct the
+        null importance distribution.
+
+    n_repeats : int, default=5
+        Number of BART fits averaged for the observed response and separately for
+        each permuted response.
+
+    alpha : float, default=0.05
+        Upper-tail probability used by the permutation-null thresholding rules.
+
+        For example, ``alpha=0.05`` corresponds to using the upper 5% tail of the
+        relevant null distribution.
+
+    method : {"local", "global_max", "global_se"}, default="global_se"
+        Thresholding rule used by the selector's default result.
+
+    importance_kind : {"raw", "logml"}, default="raw"
+        Variable-importance definition used by the default result and convenience
+        methods.
+
+        ``"raw"`` uses standard split-count variable inclusion.
+
+        ``"logml"`` uses positive log marginal-likelihood-weighted variable
+        inclusion.
+
+        Both importance definitions are computed regardless of this setting and
+        can be retrieved after fitting with :meth:`get_result`.
+
+    random_state : int or None, optional
+        Seed controlling response permutations and the seeds assigned to repeated
+        BART fits.
+
+    verbose : bool, default=False
+        Whether to print progress while fitting repeated observed and null models.
+
+    Notes
+    -----
+    The approximate number of BART fits is
+
+    .. math::
+
+        n_{\\mathrm{repeats}}
+        \\left(1 + n_{\\mathrm{permutations}}\\right).
+
+    Consequently, permutation-null selection can be substantially more expensive
+    than fitting a single BART model.
+
+    The resulting thresholds measure importance relative to a permuted-response
+    null distribution. They should not be interpreted as posterior probabilities
+    that individual predictors are relevant or as causal significance tests.
     """
-
     def __init__(
         self,
         model_cls: Any,
@@ -87,7 +157,49 @@ class BartVariableSelector:
         random_state: int | None = None,
         verbose: bool = False,
     ) -> BartVariableSelector:
-        """Create a selector from an unfitted model instance."""
+        """Create a selector from an existing model instance.
+
+        The estimator class and constructor parameters are obtained from the model's
+        :meth:`~genbart.base_bart.BaseBART.get_params` method. A fresh BART model is
+        created for every repeated fit; fitted state from ``model`` is not reused.
+
+        Parameters
+        ----------
+        model : object
+            Model instance implementing ``get_params()``.
+
+        n_permutations : int, default=20
+            Number of permuted-response null datasets.
+
+        n_repeats : int, default=5
+            Number of repeated BART fits per observed or permuted response.
+
+        alpha : float, default=0.05
+            Upper-tail probability used by the thresholding rules.
+
+        method : {"local", "global_max", "global_se"}, default="global_se"
+            Default thresholding rule.
+
+        importance_kind : {"raw", "logml"}, default="raw"
+            Importance definition used by the default result.
+
+        random_state : int or None, optional
+            Seed controlling selector randomness.
+
+        verbose : bool, default=False
+            Whether to print fitting progress.
+
+        Returns
+        -------
+        BartVariableSelector
+            Configured selector using the supplied model's class and parameters.
+
+        Raises
+        ------
+        TypeError
+            If ``model`` is a class rather than an instance, does not implement
+            ``get_params()``, or returns invalid parameter information.
+        """
         model_cls, model_params = get_model_spec(model)
 
         return cls(
@@ -108,7 +220,58 @@ class BartVariableSelector:
         y: Any,
         feature_names: list[str] | None = None,
     ) -> VariableSelectionResult:
-        """Fit the permutation-null variable-selection procedure."""
+        """Fit the permutation-null variable-selection procedure.
+
+        The observed-response importance is estimated by averaging ``n_repeats`` BART
+        fits. A null distribution is then constructed from ``n_permutations`` shuffled
+        responses, with each null importance vector also averaged over
+        ``n_repeats`` BART fits.
+
+        Both ``"raw"`` and ``"logml"`` importance definitions are collected from the
+        same fitted models.
+
+        Parameters
+        ----------
+        X : array-like
+            Predictor matrix. A one-dimensional array is interpreted as a single
+            predictor.
+
+        y : array-like
+            One-dimensional response array.
+
+        feature_names : list of str, optional
+            Names assigned to the predictors.
+
+            If omitted and ``X`` provides column names, such as a pandas DataFrame,
+            those names are used. Otherwise names ``"x0"``, ``"x1"``, ... are
+            generated.
+
+        Returns
+        -------
+        VariableSelectionResult
+            Result corresponding to the selector's configured ``importance_kind``.
+
+            Results for both importance definitions are retained internally and can be
+            retrieved with :meth:`get_result`.
+
+        Notes
+        -----
+        After fitting:
+
+        ``importance_repeats_by_kind_``
+            Contains observed-response importance vectors from the individual repeated
+            fits.
+
+        ``importance_by_kind_``
+            Contains their mean importance vectors.
+
+        ``null_importance_by_kind_``
+            Contains one averaged null importance vector per response permutation.
+
+        ``results_``
+            Maps ``"raw"`` and ``"logml"`` to their respective
+            :class:`VariableSelectionResult` objects.
+        """
         data_X = X
         X, y = validate_xy(X, y)
         _, n_features = X.shape
@@ -172,8 +335,28 @@ class BartVariableSelector:
         Parameters
         ----------
         importance_kind : {"raw", "logml"}, optional
-            Importance definition to return. If omitted, the selector's configured
-            default importance_kind is used.
+            Importance definition to retrieve. If omitted, the selector's configured
+            ``importance_kind`` is used.
+
+        Returns
+        -------
+        VariableSelectionResult
+            Selection result containing observed importance, permutation-null
+            importance, and all three thresholding methods for the requested
+            importance definition.
+
+        Raises
+        ------
+        RuntimeError
+            If the selector has not been fitted.
+
+        ValueError
+            If ``importance_kind`` is not ``"raw"`` or ``"logml"``.
+
+        Notes
+        -----
+        Both importance definitions are calculated during :meth:`fit`, so switching
+        between ``"raw"`` and ``"logml"`` here does not refit the BART models.
         """
         self._check_is_fitted()
 

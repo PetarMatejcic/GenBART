@@ -3,10 +3,17 @@ BartPredictiveSelector
 
 .. currentmodule:: genbart.feature_selection
 
-``BartPredictiveSelector`` performs predictive-degradation feature selection.
+.. warning::
 
-The selector fits repeated BART models, computes a baseline predictive loss,
-then permutes each feature column and measures how much the loss increases.
+   ``BartPredictiveSelector`` is an experimental feature. Its API, selection
+   criterion, or presence in GenBART may change in a future release.
+
+``BartPredictiveSelector`` explores feature relevance by measuring changes in
+predictive loss after individual predictors are permuted.
+
+It is not currently part of GenBART's primary feature-selection workflow. For
+the permutation-null approach based on BART variable importance, see
+:class:`BartVariableSelector`.
 
 
 Class

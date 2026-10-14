@@ -1,16 +1,31 @@
 Feature Selection
 =================
 
-GenBART provides two feature-selection tools:
+GenBART's primary feature-selection workflow is
+``BartVariableSelector``, which performs permutation-null selection using BART
+variable-importance statistics.
+
+An additional experimental selector, ``BartPredictiveSelector``, is included
+for predictive-degradation experiments.
+
+
+Primary selector
+----------------
 
 ``BartVariableSelector``
-   A BART-native selector based on posterior variable-inclusion proportions.
-   It compares observed inclusion values against a permuted-response null
-   distribution.
+   A BART-native permutation-null selector based on posterior variable
+   importance. It supports both standard split-count inclusion proportions and
+   GenBART's log marginal-likelihood-weighted importance.
+
+
+Experimental selector
+---------------------
 
 ``BartPredictiveSelector``
-   A predictive-degradation selector. It permutes one feature at a time and
-   measures how much predictive loss increases.
+   An experimental procedure that permutes individual predictors and measures
+   the resulting change in predictive loss.
+
+   This API is exploratory and may change or be removed in a future release.
 
 Both selectors are available from ``genbart.feature_selection``:
 
@@ -61,22 +76,21 @@ It supports three thresholding methods:
    Global standardized threshold mapped back to feature-specific scales.
 
 
-Predictive-degradation selection
---------------------------------
+Experimental predictive-degradation selection
+----------------------------------------------
 
-``BartPredictiveSelector`` measures how much predictive loss increases when
-a feature is permuted.
+.. warning::
 
-For ``task="classification"``, supported losses are ``"brier"`` and
-``"log_loss"``.
+   ``BartPredictiveSelector`` is experimental. Its methodology and API may
+   change or be removed in a future release.
 
-For ``task="regression"``, supported losses are ``"mse"`` and ``"rmse"``.
+``BartPredictiveSelector`` measures how predictive loss changes when a feature
+is permuted in evaluation data.
 
-If ``use_posterior_draws=False``, the selector averages
-``posterior_sample_draws(X)`` and scores the posterior mean prediction.
+Classification supports ``"brier"`` and ``"log_loss"`` losses. Regression
+supports ``"mse"`` and ``"rmse"``.
 
-If ``use_posterior_draws=True``, the selector scores every posterior sample
-draw separately.
+See :doc:`bart_predictive_selector` for the current API.
 
 
 Pages
