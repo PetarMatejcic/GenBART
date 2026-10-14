@@ -27,15 +27,79 @@ from .base_bart import BaseBART
 class ProbitBart(BaseBART):
     """Bayesian additive regression trees classifier with a probit link.
 
-    ``ProbitBart`` models binary outcomes through a latent Gaussian regression
-    function. Conditional class probabilities are computed as ``Phi(G(x))``, where
-    ``G(x)`` is the posterior sum-of-trees draw and ``Phi`` is the standard normal
-    CDF. The observation variance is fixed to one, and the terminal-node prior is
-    scaled for the latent probit scale.
+    ``ProbitBart`` models a binary response through a latent Gaussian BART
+    regression function. For a latent function ``G(x)``, the probability of the
+    positive class is
 
-    Attributes:
-        y_obs: Observed binary response vector used to truncate latent Gaussian
-            working responses during MCMC.
+    .. math::
+
+        P(Y=1 \\mid X=x) = \\Phi(G(x)),
+
+    where :math:`\\Phi` is the standard normal cumulative distribution function.
+
+    Posterior forests are sampled using Bayesian backfitting MCMC. Each retained
+    forest produces one posterior draw of ``G(x)``, which is transformed through
+    the probit link to obtain a posterior draw of the class probability.
+
+    Parameters
+    ----------
+    m : int, default=200
+        Number of trees in the BART ensemble.
+
+    alpha : float, default=0.95
+        Base probability parameter in the tree-structure prior.
+
+    beta : float, default=2.0
+        Depth penalty in the tree-structure prior. A node at depth ``d`` has
+        splitting probability
+
+        .. math::
+
+            p_{\\mathrm{split}}(d)
+            =
+            \\frac{\\alpha}{(1+d)^{\\beta}}.
+
+    k : float, default=2.0
+        Shrinkage parameter controlling the prior variance of terminal-node means
+        on the latent probit scale:
+
+        .. math::
+
+            \\sigma_{\\mu}^{2}
+            =
+            \\left(
+            \\frac{3}{k\\sqrt{m}}
+            \\right)^2.
+
+        Larger ``k`` produces stronger shrinkage toward small individual-tree
+        contributions.
+
+    n_burn : int, default=200
+        Number of initial MCMC iterations discarded as burn-in.
+
+    n_samples : int, default=1000
+        Number of posterior forest draws retained after burn-in.
+
+    move_distribution : tuple of float, default=(0.25, 0.25, 0.40, 0.10)
+        Proposal probabilities for the tree-structure moves
+
+        ``(grow, prune, change, swap)``.
+
+    random_state : int, default=0
+        Seed used for reproducible NumPy and backend sampling.
+
+    Attributes
+    ----------
+    y_obs : np.ndarray
+        Binary training labels encoded as 0 and 1.
+
+    Notes
+    -----
+    The latent Gaussian error variance is fixed to one, as required for
+    identifiability of the probit model.
+
+    See the model-parameter guide for a more detailed interpretation of the BART
+    prior and MCMC hyperparameters.
     """
     y_obs: np.ndarray
 
@@ -72,28 +136,41 @@ class ProbitBart(BaseBART):
                          random_state=random_state)
 
     def fit(self, X, y):
-        """Fit the probit BART classifier to binary response data.
+        """Fit the probit BART classifier.
 
-        The method stores the feature matrix and observed labels, initializes latent
-        Gaussian working responses with signs consistent with the binary outcomes,
-        sets the probit observation variance to one, initializes the terminal-node prior
-        on the latent scale, runs burn-in iterations, and retains serialized posterior
-        forest draws for probability prediction.
+        Binary outcomes are modeled through latent Gaussian variables. During MCMC,
+        latent responses are sampled from truncated normal distributions whose sign
+        is determined by the observed class label, and the latent regression
+        function is updated using Bayesian backfitting.
 
-        Args:
-            X: Feature matrix of shape ``(n_samples, n_features)`` or a one-dimensional
-                array for a single predictor.
-            y: Binary response array of length ``n_samples``. Values equal to ``1`` are
-                treated as the positive class; all other values are treated as the
-                negative class.
+        Parameters
+        ----------
+        X : array-like
+            Feature matrix with shape ``(n_observations, n_features)``. A
+            one-dimensional array is interpreted as a single predictor.
 
-        Returns:
-            The fitted ``ProbitBart`` instance.
+        y : array-like
+            One-dimensional binary response array containing only ``0`` and ``1``.
+            ``1`` denotes the positive class.
 
-        Raises:
-            ValueError: If ``X`` has more than two dimensions.
-            RuntimeError: If backend forest serialization or packed-forest finalization
-                fails.
+        Returns
+        -------
+        ProbitBart
+            The fitted estimator.
+
+        Raises
+        ------
+        ValueError
+            If ``X`` is not one- or two-dimensional, if ``y`` is not one-dimensional,
+            if ``X`` and ``y`` contain different numbers of observations, or if
+            ``y`` contains values other than 0 and 1.
+
+        Notes
+        -----
+        The latent Gaussian observation variance is fixed to one. After burn-in,
+        ``n_samples`` complete posterior forest draws are retained for probability
+        prediction, uncertainty summaries, partial dependence, and variable
+        importance.
         """
         self.X = np.asarray(X)
         if self.X.ndim == 1:
@@ -132,26 +209,48 @@ class ProbitBart(BaseBART):
         return self
 
     def predict_probs(self, X, level: float = 0.90):
-        """Estimate posterior class probabilities and credible intervals.
+        """Estimate posterior positive-class probabilities.
 
-        Each retained posterior forest draw is evaluated at ``X`` to obtain latent
-        function values, which are transformed through the standard normal CDF. The
-        returned probability is the posterior mean of those transformed draws, with
-        central posterior interval bounds computed from their quantiles.
+        Each retained posterior forest is evaluated at ``X`` to obtain a draw of the
+        latent probit function ``G(x)``. Applying the standard normal CDF gives a
+        posterior draw of
 
-        Args:
-            X: Input feature matrix or a single feature row. A one-dimensional input is
-                treated as one row when the model has multiple predictors, and as a
-                column vector when the model has one predictor.
-            level: Credible interval level for posterior probability intervals.
+        .. math::
 
-        Returns:
-            A dictionary containing ``"probs"``, ``"conf_int_low"``, and
-            ``"conf_int_high"``. Values are scalars for a single multi-feature row and
-            NumPy arrays for multiple rows.
+            P(Y=1 \\mid X=x) = \\Phi(G(x)).
 
-        Notes:
-            This method requires a fitted model with a populated ``packed_forest``.
+        The returned probability is the posterior mean of these probability draws.
+        The interval bounds are posterior credible intervals for the class
+        probability.
+
+        Parameters
+        ----------
+        X : array-like
+            Predictor values at which to evaluate the fitted model.
+
+            For a model with multiple predictors, a one-dimensional array is treated
+            as a single observation. For a model with one predictor, a one-dimensional
+            array is treated as multiple observations.
+
+        level : float, default=0.90
+            Probability mass contained in the central credible interval.
+
+        Returns
+        -------
+        dict
+            Dictionary containing:
+
+            - ``"probs"``: posterior mean probability of the positive class.
+            - ``"conf_int_low"``: lower posterior credible bound.
+            - ``"conf_int_high"``: upper posterior credible bound.
+
+            Values are scalars for one multi-feature observation and one-dimensional
+            NumPy arrays for multiple observations.
+
+        Notes
+        -----
+        The credible interval describes posterior uncertainty in the class
+        probability. It is not a confidence interval for the observed class label.
         """
         prob_draws = self._predict_prob_draws(X)
         a = 1 - level
@@ -172,15 +271,30 @@ class ProbitBart(BaseBART):
         return out
 
     def predict(self, X, threshold: float = 0.5):
-        """Predict binary class labels from posterior mean class probabilities.
+        """Predict binary class labels.
 
-        Args:
-            X: Input feature matrix or single feature row.
-            threshold: Probability cutoff used to assign the positive class.
+        Posterior mean positive-class probabilities are obtained with
+        :meth:`predict_probs` and converted to class labels using ``threshold``.
 
-        Returns:
-            A Boolean scalar or NumPy array indicating whether each posterior mean class
-            probability is greater than or equal to ``threshold``.
+        Parameters
+        ----------
+        X : array-like
+            Predictor values at which to classify observations.
+
+        threshold : float, default=0.5
+            Probability cutoff for assigning the positive class. Probabilities greater
+            than or equal to ``threshold`` are assigned to class 1.
+
+        Returns
+        -------
+        bool or np.ndarray
+            Boolean class prediction or array of predictions. ``True`` corresponds to
+            class 1 and ``False`` to class 0.
+
+        Notes
+        -----
+        Changing ``threshold`` affects only the conversion from probabilities to
+        class labels; it does not refit the BART model.
         """
         probs = self.predict_probs(X)["probs"]
         return probs >= threshold
@@ -193,22 +307,27 @@ class ProbitBart(BaseBART):
         """Compute one-variable partial dependence for class probabilities.
 
         For each value on a grid spanning the observed range of the selected
-        predictor, the predictor is replaced by that value for every training
+        predictor, that predictor is replaced by the grid value for every training
         observation. Posterior class probabilities are then averaged over the
         training observations separately for each posterior draw.
+
+        The resulting posterior partial-dependence draws are summarized by their mean
+        or median and by a central credible interval.
 
         Parameters
         ----------
         variable : int
-            Predictor to vary. 
+            Column index of the predictor whose partial dependence is evaluated.
+
         grid_samples : int, default=100
-            Number of evenly spaced grid values between the observed minimum and maximum
-            of the selected predictor.
+            Number of evenly spaced grid values between the observed minimum and
+            maximum of the selected predictor.
+
         central_measure : {"mean", "median"}, default="mean"
-            Reserved for API consistency with regression BART. Currently unused because
-            ``predict_probs`` returns the posterior mean probability.
+            Posterior summary used for the point estimate of partial dependence.
+
         level : float, default=0.9
-            Credible interval level passed to ``predict_probs``.
+            Probability mass contained in the central credible interval.
 
         Returns
         -------
@@ -216,9 +335,35 @@ class ProbitBart(BaseBART):
             Dictionary containing:
 
             - ``"grid"``: predictor values at which partial dependence is evaluated.
-            - ``"prediction"``: posterior point estimate of partial dependence.
+            - ``"prediction"``: posterior mean or median partial-dependence probability.
             - ``"conf_int_low"``: lower posterior credible bound.
             - ``"conf_int_high"``: upper posterior credible bound.
+
+            Each returned array has length ``grid_samples``.
+
+        Raises
+        ------
+        TypeError
+            If ``variable`` is not an integer column index.
+
+        ValueError
+            If ``central_measure`` is not ``"mean"`` or ``"median"``.
+
+        Notes
+        -----
+        For predictor :math:`x_j`, the probability partial-dependence function is
+        approximated by
+
+        .. math::
+
+            \\operatorname{PD}(x_j)
+            =
+            \\frac{1}{n}
+            \\sum_{i=1}^{n}
+            P(Y=1 \\mid x_j, x_{i,-j}).
+
+        The credible interval describes posterior uncertainty in the
+        partial-dependence function, not variability across individual observations.
         """
         if not isinstance(variable, int):
             raise TypeError("variable must be an integer column index.")
@@ -268,20 +413,53 @@ class ProbitBart(BaseBART):
     def evaluate(self, X, y, threshold: float = 0.5):
         """Evaluate binary classification performance.
 
+        Metrics are computed from posterior mean positive-class probabilities.
+        Probabilities are converted to class predictions using ``threshold``.
+
         Parameters
         ----------
         X : array-like
-            Feature matrix or single observation.
+            Predictor values for the observations to evaluate.
+
         y : array-like
-            Observed binary labels, encoded as 0 and 1.
+            Observed binary labels encoded as 0 and 1.
+
         threshold : float, default=0.5
-            Probability cutoff used to convert predicted probabilities into
-            hard class predictions.
+            Probability cutoff used to assign the positive class.
 
         Returns
         -------
-        out : dict
-            Dictionary of scalar classification metrics.
+        dict
+            Dictionary containing:
+
+            - ``"n"``: number of evaluated observations.
+            - ``"threshold"``: probability threshold used for classification.
+            - ``"accuracy"``: fraction of correctly classified observations.
+            - ``"balanced_accuracy"``: mean of sensitivity and specificity.
+            - ``"sensitivity"``: true-positive rate.
+            - ``"specificity"``: true-negative rate.
+            - ``"precision"``: positive predictive value.
+            - ``"f1"``: harmonic mean of precision and sensitivity.
+            - ``"brier_score"``: mean squared error of predicted probabilities.
+            - ``"log_loss"``: binary cross-entropy loss.
+            - ``"tn"``, ``"fp"``, ``"fn"``, ``"tp"``: confusion-matrix counts.
+            - ``"roc_auc"``: area under the ROC curve.
+            - ``"average_precision"``: area under the precision-recall curve using
+            the average-precision definition.
+
+        Raises
+        ------
+        ValueError
+            If ``y`` is not one-dimensional, contains labels other than 0 and 1, or
+            contains a different number of observations than ``X``.
+
+        Notes
+        -----
+        ``roc_auc`` and ``average_precision`` are returned as ``NaN`` when the
+        evaluation data contain only one observed class.
+
+        Threshold-independent metrics such as ROC AUC, average precision, Brier score,
+        and log loss use the posterior mean probabilities directly.
         """
         y_true = np.asarray(y).astype(int)
         if y_true.ndim != 1:
@@ -336,25 +514,60 @@ class ProbitBart(BaseBART):
                           y,
                           n_bins: int = 10,
                           strategy: str = "uniform"):
-        """Return calibration-curve data for predicted probabilities.
+        """Summarize probability calibration in bins.
+
+        Predicted positive-class probabilities are grouped into bins. For each
+        non-empty bin, the method compares the mean predicted probability with the
+        observed proportion of positive outcomes.
 
         Parameters
         ----------
         X : array-like
-            Feature matrix or single observation.
+            Predictor values for the observations to evaluate.
+
         y : array-like
-            Observed binary labels, encoded as 0 and 1.
+            Observed binary labels encoded as 0 and 1.
+
         n_bins : int, default=10
-            Number of probability bins.
+            Requested number of probability bins.
+
         strategy : {"uniform", "quantile"}, default="uniform"
-            Binning strategy. "uniform" uses equal-width bins on [0, 1].
-            "quantile" uses bins with approximately equal numbers of observations.
+            Method used to construct bins.
+
+            ``"uniform"`` divides the interval ``[0, 1]`` into equal-width bins.
+
+            ``"quantile"`` chooses boundaries from quantiles of the predicted
+            probabilities so that bins contain approximately equal numbers of
+            observations.
 
         Returns
         -------
-        out : dict
-            Dictionary containing mean predicted probability, observed event
-            frequency, bin counts, and bin edges.
+        dict
+            Dictionary containing:
+
+            - ``"prob_pred"``: mean predicted probability in each non-empty bin.
+            - ``"prob_true"``: observed positive-class frequency in each non-empty bin.
+            - ``"bin_count"``: number of observations in each returned bin.
+            - ``"bin_left"``: left edge of each returned bin.
+            - ``"bin_right"``: right edge of each returned bin.
+            - ``"bin_edges"``: complete array of constructed bin boundaries.
+            - ``"n_bins"``: requested number of bins.
+            - ``"strategy"``: binning strategy.
+
+        Raises
+        ------
+        ValueError
+            If ``y`` is invalid, ``X`` and ``y`` contain different numbers of
+            observations, ``n_bins`` is not positive, ``strategy`` is unsupported, or
+            quantile binning cannot construct distinct bin boundaries.
+
+        Notes
+        -----
+        Empty bins are omitted from the per-bin output arrays.
+
+        With quantile binning, repeated predicted probabilities can cause duplicate
+        quantile boundaries to be removed, so the effective number of bins may be
+        smaller than ``n_bins``.
         """
         y_true = np.asarray(y).astype(int)
         if y_true.ndim != 1:
@@ -422,7 +635,30 @@ class ProbitBart(BaseBART):
         }
     
     def posterior_sample_draws(self, X):
-        """Return posterior class-probability draws."""
+        """Return posterior draws of positive-class probabilities.
+
+        Each retained posterior forest is evaluated at ``X`` and transformed through
+        the standard normal CDF.
+
+        Parameters
+        ----------
+        X : array-like
+            Predictor values at which to evaluate the fitted model.
+
+        Returns
+        -------
+        np.ndarray
+            Array with shape ``(n_samples, n_observations)``.
+
+            Each row corresponds to one retained posterior forest and each column to
+            one observation. Each value is a posterior draw of
+            :math:`P(Y=1 \\mid X=x)`.
+
+        Notes
+        -----
+        This method is useful for custom posterior summaries that are not provided by
+        :meth:`predict_probs`.
+        """
         return self._predict_prob_draws(X)
 
     def _predict_prob_draws(self, X):
