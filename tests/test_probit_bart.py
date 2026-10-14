@@ -166,20 +166,21 @@ def test_fit_handles_all_zero_labels_without_crashing():
     assert np.all((0.0 <= out["probs"]) & (out["probs"] <= 1.0))
 
 
-def test_fit_and_predict_probs_are_reproducible_with_fixed_seed():
+def test_fit_is_reproducible_with_fixed_seed():
     """Produce identical fitted probabilities and variable inclusion when the same seed is reused."""
     X, y = _make_classification_data(n=130, p=5, seed=17)
 
     model1 = ProbitBart(m=8, n_burn=25, n_samples=35, random_state=999).fit(X, y)
     model2 = ProbitBart(m=8, n_burn=25, n_samples=35, random_state=999).fit(X, y)
 
-    pred1 = model1.predict_probs(X[:10], level=0.9)
-    pred2 = model2.predict_probs(X[:10], level=0.9)
+    draws1 = model1.posterior_sample_draws(X[:10])
+    draws2 = model2.posterior_sample_draws(X[:10])
 
-    np.testing.assert_allclose(pred1["probs"], pred2["probs"])
-    np.testing.assert_allclose(pred1["conf_int_low"], pred2["conf_int_low"])
-    np.testing.assert_allclose(pred1["conf_int_high"], pred2["conf_int_high"])
-    np.testing.assert_allclose(model1.variable_inclusion(), model2.variable_inclusion())
+    np.testing.assert_allclose(draws1, draws2)
+    np.testing.assert_allclose(
+        model1.variable_inclusion(),
+        model2.variable_inclusion(),
+    )
 
 
 def test_model_assigns_higher_average_probability_to_positive_training_examples():

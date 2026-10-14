@@ -102,7 +102,7 @@ class ProbitBart(BaseBART):
             raise ValueError
         self.y_obs = np.asarray(y)
         self.n, self.p = self.X.shape
-        z = truncnorm(a=0, b=np.inf).rvs(self.n)
+        z = truncnorm(a=0, b=np.inf).rvs(self.n, random_state=self.rng)
         self.y_work = np.where(self.y_obs == 1, z, -z)
 
         self._initialize_fit_state()
