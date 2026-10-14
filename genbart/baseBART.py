@@ -262,11 +262,11 @@ class BaseBART:
 
         Parameters
         ----------
-        kind : {"raw", "logml_weighted"}, default="raw"
+        kind : {"raw", "logml"}, default="raw"
             Importance definition to return.
 
             "raw" returns standard split-count inclusion proportions.
-            "logml_weighted" returns subtree-collapse log marginal likelihood
+            "logml" returns subtree-collapse log marginal likelihood
             weighted inclusion proportions.
 
         Returns
