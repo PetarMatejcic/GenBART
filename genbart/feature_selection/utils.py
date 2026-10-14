@@ -217,6 +217,4 @@ __all__ = [
     "make_repeated_model_seeds",
     "permute_response",
     "permute_column",
-    "check_positive_int",
-    "check_probability",
 ]
