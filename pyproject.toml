@@ -38,6 +38,20 @@ dependencies = [
     "scikit-learn",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+docs = [
+    "sphinx",
+    "sphinx-autodoc-typehints",
+    "myst-parser",
+    "breathe",
+    "insipid-sphinx-theme",
+    "sphinx-design",
+]
+
 [project.urls]
 Homepage = "https://github.com/PetarMatejcic/GenBART"
 Documentation = "https://petarmatejcic.github.io/GenBART/"
