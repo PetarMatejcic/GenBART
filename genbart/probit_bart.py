@@ -98,12 +98,17 @@ class ProbitBart(BaseBART):
         self.X = np.asarray(X)
         if self.X.ndim == 1:
             self.X = self.X.reshape((-1, 1))
-        elif self.X.ndim > 2:
-            raise ValueError
+        elif self.X.ndim != 2:
+            raise ValueError("X must be a 1D or 2D array.")
         
         self.y_obs = np.asarray(y)
         if self.y_obs.ndim != 1:
             raise ValueError("y must be a 1D array.")
+        if self.X.shape[0] != self.y_obs.shape[0]:
+            raise ValueError(
+                f"X and y have incompatible lengths: "
+                f"{self.X.shape[0]} and {self.y_obs.shape[0]}."
+            )
         if not np.all((self.y_obs == 0) | (self.y_obs == 1)):
             raise ValueError("y must contain only binary labels 0 and 1.")
 

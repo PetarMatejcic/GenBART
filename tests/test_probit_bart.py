@@ -156,6 +156,26 @@ def test_fit_rejects_multidimensional_y():
         model.fit(X, y)
 
 
+def test_fit_rejects_scalar_X():
+    X = 1.0
+    y = np.array([1])
+
+    model = ProbitBart(m=5, n_burn=5, n_samples=5, random_state=0)
+
+    with pytest.raises(ValueError, match="1D or 2D"):
+        model.fit(X, y)
+
+
+def test_fit_rejects_mismatched_X_y_lengths():
+    X = np.arange(12, dtype=float).reshape(6, 2)
+    y = np.array([0, 1, 0, 1, 0])
+
+    model = ProbitBart(m=5, n_burn=5, n_samples=5, random_state=0)
+
+    with pytest.raises(ValueError, match="incompatible lengths"):
+        model.fit(X, y)
+
+
 def test_fit_handles_all_one_labels_without_crashing():
     """Handle the degenerate all-positive-label case without producing NaNs or crashing."""
     rng = np.random.default_rng(15)

@@ -51,6 +51,36 @@ def test_fit_rejects_three_dimensional_X():
         model.fit(X, y)
 
 
+def test_fit_rejects_scalar_X():
+    X = 1.0
+    y = np.array([1.0])
+
+    model = RegBart(m=5, n_burn=5, n_samples=5, random_state=0)
+
+    with pytest.raises(ValueError, match="1D or 2D"):
+        model.fit(X, y)
+
+
+def test_fit_rejects_multidimensional_y():
+    X = np.arange(12, dtype=float).reshape(6, 2)
+    y = np.arange(6, dtype=float).reshape(6, 1)
+
+    model = RegBart(m=5, n_burn=5, n_samples=5, random_state=0)
+
+    with pytest.raises(ValueError, match="1D array"):
+        model.fit(X, y)
+
+
+def test_fit_rejects_mismatched_X_y_lengths():
+    X = np.arange(12, dtype=float).reshape(6, 2)
+    y = np.arange(5, dtype=float)
+
+    model = RegBart(m=5, n_burn=5, n_samples=5, random_state=0)
+
+    with pytest.raises(ValueError, match="incompatible lengths"):
+        model.fit(X, y)
+
+
 def test_fit_accepts_one_dimensional_X_and_predicts():
     """Accept a one-dimensional predictor array by reshaping it internally and return finite predictions."""
     rng = np.random.default_rng(1)

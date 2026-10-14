@@ -112,9 +112,18 @@ class RegBart(BaseBART):
         self.X = np.asarray(X)
         if self.X.ndim == 1:
             self.X = self.X.reshape((-1, 1))
-        elif self.X.ndim > 2:
-            raise ValueError
+        elif self.X.ndim != 2:
+            raise ValueError("X must be a 1D or 2D array.")
+        
         y = np.asarray(y)
+        if y.ndim != 1:
+            raise ValueError("y must be a 1D array.")
+        if self.X.shape[0] != y.shape[0]:
+            raise ValueError(
+                f"X and y have incompatible lengths: "
+                f"{self.X.shape[0]} and {y.shape[0]}."
+            )
+        
         self.y_scale = max(y) - min(y)
         if self.y_scale < 1e-16:
             self.y_scale = 1.0
