@@ -30,6 +30,12 @@ The Python API contains the public user-facing estimators.
 
       Feature selection workflow.
 
+   .. grid-item-card:: Model Selection
+      :link: model_selection
+      :link-type: doc
+
+      Grid-search cross-validation utilities for BART hyperparameters.
+
 .. toctree::
    :maxdepth: 3
    :caption: Python API pages:
@@ -38,3 +44,4 @@ The Python API contains the public user-facing estimators.
    probit_bart
    base_bart
    feature_selection/index
+   model_selection
