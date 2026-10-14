@@ -375,7 +375,7 @@ def test_calibration_curve_returns_valid_uniform_bins():
 
 
 def test_partial_dependence_returns_valid_probability_curve():
-    """Return valid mean-reference probability summaries across a predictor grid."""
+    """Return valid partial-dependence probability summaries across a predictor grid."""
     X, y = _make_classification_data(n=120, p=4, seed=23)
     model = _fit_small_model(X, y, random_state=23)
 
@@ -385,11 +385,13 @@ def test_partial_dependence_returns_valid_probability_curve():
     )
 
     assert set(result) == {
+        "grid",
         "prediction",
         "conf_int_low",
         "conf_int_high",
     }
 
+    assert result["grid"].shape == (7,)
     assert result["prediction"].shape == (7,)
     assert result["conf_int_low"].shape == (7,)
     assert result["conf_int_high"].shape == (7,)
@@ -401,4 +403,9 @@ def test_partial_dependence_returns_valid_probability_curve():
     assert np.all(
         (0.0 <= result["prediction"])
         & (result["prediction"] <= 1.0)
+    )
+
+    np.testing.assert_allclose(
+        result["grid"],
+        np.linspace(X[:, 0].min(), X[:, 0].max(), 7),
     )

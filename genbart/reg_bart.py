@@ -246,13 +246,12 @@ class RegBart(BaseBART):
                            grid_samples = 100,
                            central_measure = "mean",
                            level = 0.9):
-        """Compute a one-variable mean-reference prediction curve.
+        """Compute one-variable partial dependence.
 
-        For a selected predictor, this method constructs an evenly spaced grid over the
-        observed training range of that predictor. At each grid value, all other
-        predictors are fixed to their training-sample means, the fitted BART model is
-        evaluated at the resulting reference row, and the posterior prediction summary
-        and credible interval are stored.
+        For each value on a grid spanning the observed range of the selected
+        predictor, the predictor is replaced by that value for every training
+        observation. Predictions are then averaged over the training observations
+        separately for each posterior draw.
 
         Parameters
         ----------
