@@ -100,7 +100,13 @@ class ProbitBart(BaseBART):
             self.X = self.X.reshape((-1, 1))
         elif self.X.ndim > 2:
             raise ValueError
+        
         self.y_obs = np.asarray(y)
+        if self.y_obs.ndim != 1:
+            raise ValueError("y must be a 1D array.")
+        if not np.all((self.y_obs == 0) | (self.y_obs == 1)):
+            raise ValueError("y must contain only binary labels 0 and 1.")
+
         self.n, self.p = self.X.shape
         z = truncnorm(a=0, b=np.inf).rvs(self.n, random_state=self.rng)
         self.y_work = np.where(self.y_obs == 1, z, -z)
