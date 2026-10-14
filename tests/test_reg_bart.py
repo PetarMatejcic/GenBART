@@ -267,3 +267,28 @@ def test_evaluate_returns_finite_regression_metrics():
         if key not in {"n", "central_measure"}
     ]
     assert np.all(np.isfinite(numeric))
+
+
+def test_partial_dependence_returns_valid_curve():
+    """Return finite mean-reference predictions and intervals across a predictor grid."""
+    X, y = _make_regression_data(n=80, p=3, seed=23)
+    model = _fit_small_model(X, y, random_state=23)
+
+    result = model.partial_dependence(
+        variable=0,
+        grid_samples=7,
+    )
+
+    assert set(result) == {
+        "prediction",
+        "conf_int_low",
+        "conf_int_high",
+    }
+
+    assert result["prediction"].shape == (7,)
+    assert result["conf_int_low"].shape == (7,)
+    assert result["conf_int_high"].shape == (7,)
+
+    assert np.all(np.isfinite(result["prediction"]))
+    assert np.all(result["conf_int_low"] <= result["prediction"])
+    assert np.all(result["prediction"] <= result["conf_int_high"])
