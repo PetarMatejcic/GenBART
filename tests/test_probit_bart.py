@@ -328,3 +328,47 @@ def test_evaluate_returns_finite_classification_metrics():
     assert result["brier_score"] >= 0.0
     assert result["log_loss"] >= 0.0
     assert result["tn"] + result["fp"] + result["fn"] + result["tp"] == len(y)
+
+
+def test_calibration_curve_returns_valid_uniform_bins():
+    """Return valid calibration-bin summaries for fitted probabilities."""
+    X, y = _make_classification_data(n=120, p=4, seed=22)
+    model = _fit_small_model(X, y, random_state=22)
+
+    result = model.calibration_curve(
+        X,
+        y,
+        n_bins=5,
+        strategy="uniform",
+    )
+
+    expected_keys = {
+        "prob_pred",
+        "prob_true",
+        "bin_count",
+        "bin_left",
+        "bin_right",
+        "bin_edges",
+        "n_bins",
+        "strategy",
+    }
+
+    assert set(result) == expected_keys
+    assert result["n_bins"] == 5
+    assert result["strategy"] == "uniform"
+
+    assert len(result["bin_edges"]) == 6
+    assert np.all(np.diff(result["bin_edges"]) >= 0.0)
+
+    assert (
+        len(result["prob_pred"])
+        == len(result["prob_true"])
+        == len(result["bin_count"])
+        == len(result["bin_left"])
+        == len(result["bin_right"])
+    )
+
+    assert result["bin_count"].sum() == len(y)
+
+    assert np.all((0.0 <= result["prob_pred"]) & (result["prob_pred"] <= 1.0))
+    assert np.all((0.0 <= result["prob_true"]) & (result["prob_true"] <= 1.0))
