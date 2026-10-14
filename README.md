@@ -90,7 +90,7 @@ print(pred["prediction"][:5])
 GenBART tracks how often each predictor is used in posterior tree splitting rules. These **variable inclusion proportions** can be used as a measure of variable importance.
 
 ```python
-from genbart.variable_selection import BartVariableSelector
+from genbart.feature_selection import BartVariableSelector
 
 selector = BartVariableSelector(
     model_cls=RegBart,
