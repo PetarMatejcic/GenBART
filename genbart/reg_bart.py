@@ -162,30 +162,65 @@ class RegBart(BaseBART):
                 central_measure="mean",
                 conf_int=True,
                 level: float = 0.90):
-        """Predict continuous responses from retained posterior forest draws.
+        """Predict continuous responses from posterior regression-function draws.
 
-        For each input row, this method evaluates every retained posterior forest draw,
-        summarizes the posterior predictive mean function by either the mean or median,
-        and optionally returns central posterior intervals. Predictions are transformed
-        back to the original response scale before being returned.
+        For each input observation, every retained posterior forest is evaluated to
+        produce draws of the regression function
 
-        Args:
-            X: Input feature matrix or a single feature row. A one-dimensional input is
-                treated as one row when the model has multiple predictors, and as a
-                column vector when the model has one predictor.
-            central_measure: Posterior summary to report. Supported values are
-                ``"mean"`` and ``"median"``.
-            conf_int: Whether to include posterior interval bounds.
-            level: Credible interval level used when ``conf_int`` is true.
+            f(x) = E[Y | X = x].
 
-        Returns:
-            A dictionary containing ``"prediction"`` and, when requested,
-            ``"conf_int_low"`` and ``"conf_int_high"``. Values are scalars for a single
-            multi-feature row and NumPy arrays for multiple rows.
+        The returned point prediction is the mean or median of those posterior draws.
+        If ``conf_int=True``, the method also returns a central credible interval for
+        ``f(x)``.
 
-        Raises:
-            RuntimeError: If the model has not been fitted.
-            ValueError: If ``central_measure`` is not ``"mean"`` or ``"median"``.
+        The credible interval represents posterior uncertainty in the conditional
+        mean response. It does not include observation noise and therefore is not a
+        posterior predictive interval for a new observed response.
+
+        Parameters
+        ----------
+        X : array-like
+            Predictor values at which to evaluate the fitted model.
+
+            For a model with multiple predictors, a one-dimensional array is treated
+            as a single observation. For a model with one predictor, a one-dimensional
+            array is treated as multiple observations.
+
+        central_measure : {"mean", "median"}, default="mean"
+            Posterior summary used for the point prediction.
+
+        conf_int : bool, default=True
+            Whether to return lower and upper credible bounds for the regression
+            function.
+
+        level : float, default=0.90
+            Probability mass contained in the central credible interval.
+
+        Returns
+        -------
+        dict
+            Dictionary containing:
+
+            - ``"prediction"``: posterior mean or median of the regression function.
+            - ``"conf_int_low"``: lower credible bound, when ``conf_int=True``.
+            - ``"conf_int_high"``: upper credible bound, when ``conf_int=True``.
+
+            For a single multi-feature observation, values are scalars. For multiple
+            observations, values are one-dimensional NumPy arrays.
+
+        Raises
+        ------
+        RuntimeError
+            If the model has not been fitted.
+
+        ValueError
+            If ``central_measure`` is not ``"mean"`` or ``"median"``.
+
+        Notes
+        -----
+        These intervals quantify uncertainty in the fitted regression function only.
+        To construct posterior predictive intervals for future observations, draws of
+        the observation noise would also need to be included.
         """
         data = np.asarray(X)
         a = 1 - level
