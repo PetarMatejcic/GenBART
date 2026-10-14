@@ -258,21 +258,52 @@ class BaseBART:
         del self._packed_n_trees
 
     def variable_inclusion(self, kind: str = "raw"):
-        """Return posterior average variable-usage frequencies.
+        """Return posterior mean variable-importance scores.
+
+        Variable importance is computed separately for every retained posterior
+        forest draw and then averaged across draws.
 
         Parameters
         ----------
         kind : {"raw", "logml"}, default="raw"
-            Importance definition to return.
+            Variable-importance definition.
 
-            "raw" returns standard split-count inclusion proportions.
-            "logml" returns subtree-collapse log marginal likelihood
-            weighted inclusion proportions.
+            ``"raw"`` computes the standard variable inclusion proportion. Each
+            split contributes one count to its splitting variable, and the counts are
+            normalized by the total number of splits in that posterior forest.
+
+            ``"logml"`` weights each split by its positive log marginal-likelihood
+            gain. For an internal node, the gain compares the marginal likelihood of
+            retaining the full subtree below that node with the marginal likelihood
+            obtained by collapsing the node to a single leaf. Positive gains are
+            accumulated for the splitting variable and normalized by the total
+            positive gain in that posterior forest.
 
         Returns
         -------
         np.ndarray
-            One-dimensional array of length p.
+            One-dimensional array of length ``p`` containing the posterior mean
+            importance score for each predictor.
+
+        Raises
+        ------
+        RuntimeError
+            If the model has not been fitted.
+
+        ValueError
+            If ``kind`` is not ``"raw"`` or ``"logml"``.
+
+        Notes
+        -----
+        The normalization is performed separately for each retained posterior draw
+        before the scores are averaged across draws.
+
+        If a draw contains no splits, its raw importance vector is all zeros. If a
+        draw contains no positive log marginal-likelihood gains, its logML importance
+        vector is all zeros.
+
+        Use :meth:`variable_inclusion_draws` to access the individual posterior-draw
+        importance vectors.
         """
         if self._vi_sum is None:
             raise RuntimeError("Model not fitted.")
@@ -287,7 +318,36 @@ class BaseBART:
     
 
     def variable_inclusion_draws(self, kind: str = "raw"):
-        """Return posterior draw-level variable inclusion values."""
+        """Return draw-level variable-importance scores.
+
+        Parameters
+        ----------
+        kind : {"raw", "logml"}, default="raw"
+            Variable-importance definition. See :meth:`variable_inclusion` for the
+            definitions of the raw and logML-weighted statistics.
+
+        Returns
+        -------
+        np.ndarray
+            Array with shape ``(n_samples, p)``.
+
+            Each row contains the normalized variable-importance scores for one
+            retained posterior forest draw, and each column corresponds to one
+            predictor.
+
+        Raises
+        ------
+        RuntimeError
+            If the model has not been fitted.
+
+        ValueError
+            If ``kind`` is not ``"raw"`` or ``"logml"``.
+
+        Notes
+        -----
+        :meth:`variable_inclusion` returns the column-wise mean of these draw-level
+        scores.
+        """
         if self._vi_draws is None:
             raise RuntimeError("Model not fitted.")
 

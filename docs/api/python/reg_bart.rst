@@ -14,6 +14,10 @@ Class
 Methods
 -------
 
+.. automethod:: RegBart.variable_inclusion
+
+.. automethod:: RegBart.variable_inclusion_draws
+
 .. automethod:: RegBart.fit
 
 .. automethod:: RegBart.predict
