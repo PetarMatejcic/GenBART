@@ -269,43 +269,56 @@ class RegBart(BaseBART):
         Returns
         -------
         dict
-            Dictionary with three arrays, each of length ``grid_samples``:
+            Dictionary containing:
 
-            - ``"prediction"``: point prediction at each grid value.
-            - ``"conf_int_low"``: lower credible interval bound.
-            - ``"conf_int_high"``: upper credible interval bound.
-
-        Notes
-        -----
-        This is a mean-reference curve, not classical partial dependence. Classical
-        partial dependence averages predictions over the observed training rows after
-        replacing the selected variable by each grid value. Here, the complement
-        variables are fixed to their column means instead.
+            - ``"grid"``: predictor values at which partial dependence is evaluated.
+            - ``"prediction"``: posterior point estimate of partial dependence.
+            - ``"conf_int_low"``: lower posterior credible bound.
+            - ``"conf_int_high"``: upper posterior credible bound.
         """
+        if not isinstance(variable, int):
+            raise TypeError("variable must be an integer column index.")
+
+        grid = np.linspace(
+            self.X[:, variable].min(),
+            self.X[:, variable].max(),
+            grid_samples,
+        )
+
         part_dep_preds = np.empty(grid_samples)
         part_dep_low = np.empty(grid_samples)
         part_dep_high = np.empty(grid_samples)
 
-        if isinstance(variable, int):
-            grid = np.linspace(self.X[:, variable].min(),
-                            self.X[:, variable].max(),
-                            grid_samples)
-            average_X = self.X.mean(axis=0)
-            for i, val in enumerate(grid):
-                average_X[variable] = val
-                preds = self.predict(average_X,
-                                     central_measure=central_measure,
-                                     level=level)
-                part_dep_preds[i] = preds["prediction"]
-                part_dep_low[i] = preds["conf_int_low"]
-                part_dep_high[i] = preds["conf_int_high"]
-        else:
-            raise TypeError("variable must be an integer column index.")
+        alpha = 1 - level
+
+        for i, val in enumerate(grid):
+            X_eval = self.X.copy()
+            X_eval[:, variable] = val
+
+            draws = self.posterior_sample_draws(X_eval)
+
+            # One partial-dependence value per posterior draw.
+            pd_draws = draws.mean(axis=1)
+
+            if central_measure == "mean":
+                part_dep_preds[i] = pd_draws.mean()
+            elif central_measure == "median":
+                part_dep_preds[i] = np.median(pd_draws)
+            else:
+                raise ValueError(
+                    "central_measure must be 'mean' or 'median'."
+                )
+
+            part_dep_low[i], part_dep_high[i] = np.quantile(
+                pd_draws,
+                [alpha / 2.0, 1 - alpha / 2.0],
+            )
 
         return {
+            "grid": grid,
             "prediction": part_dep_preds,
             "conf_int_low": part_dep_low,
-            "conf_int_high": part_dep_high
+            "conf_int_high": part_dep_high,
         }
     
     def evaluate(self, X, y, central_measure: str = "mean"):

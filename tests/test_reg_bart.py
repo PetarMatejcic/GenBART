@@ -270,7 +270,7 @@ def test_evaluate_returns_finite_regression_metrics():
 
 
 def test_partial_dependence_returns_valid_curve():
-    """Return finite mean-reference predictions and intervals across a predictor grid."""
+    """Return finite partial-dependence predictions and intervals across a predictor grid."""
     X, y = _make_regression_data(n=80, p=3, seed=23)
     model = _fit_small_model(X, y, random_state=23)
 
@@ -280,11 +280,13 @@ def test_partial_dependence_returns_valid_curve():
     )
 
     assert set(result) == {
+        "grid",
         "prediction",
         "conf_int_low",
         "conf_int_high",
     }
 
+    assert result["grid"].shape == (7,)
     assert result["prediction"].shape == (7,)
     assert result["conf_int_low"].shape == (7,)
     assert result["conf_int_high"].shape == (7,)
@@ -292,3 +294,8 @@ def test_partial_dependence_returns_valid_curve():
     assert np.all(np.isfinite(result["prediction"]))
     assert np.all(result["conf_int_low"] <= result["prediction"])
     assert np.all(result["prediction"] <= result["conf_int_high"])
+
+    np.testing.assert_allclose(
+        result["grid"],
+        np.linspace(X[:, 0].min(), X[:, 0].max(), 7),
+    )
