@@ -165,12 +165,15 @@ The C++ backend is exposed to Python through `pybind11`, allowing the package to
 
 ## Examples
 
-Example notebooks are available in the [`notebooks/`](notebooks/) directory:
+The [`notebooks/`](notebooks/) directory contains worked examples covering the main GenBART workflows:
 
-- [Regression example](notebooks/basic_regression_example.ipynb)
-- [Probit classification example](notebooks/basic_probit_example.ipynb)
+- [**Basic regression**](notebooks/basic_regression_example.ipynb) — fits nonlinear synthetic regression functions, illustrates the effect of the number of trees, and examines posterior uncertainty.
+- [**Probit classification**](notebooks/basic_probit_example.ipynb) — demonstrates posterior class probabilities, held-out classification metrics, probability calibration, and nonlinear decision regions.
+- [**California Housing regression**](notebooks/regression_data_example.ipynb) — applies GenBART to a real dataset with train/test evaluation, cross-validated model selection, and partial dependence.
+- [**Variable importance and feature selection**](notebooks/variable_importance_and_selection.ipynb) — compares standard and log marginal-likelihood-weighted variable importance and applies permutation-based feature selection.
 
 Additional usage guidance is available in the [Getting Started](https://petarmatejcic.github.io/GenBART/getting_started.html) and [User Guide](https://petarmatejcic.github.io/GenBART/user_guide/index.html).
+
 
 ## Project status
 
