@@ -50,7 +50,10 @@ GenBART was developed from scratch to provide a compact implementation of both t
 
 The package combines a Python interface with a C++ implementation of the tree-update and backfitting routines. It also includes posterior prediction, interpretation utilities, variable selection, and model-selection tools.
 
-A separate research component of the project investigates a **log marginal-likelihood-weighted variable importance measure**, which extends standard BART variable inclusion proportions by incorporating information about the contribution of individual tree splits.
+A separate [research study](https://github.com/PetarMatejcic/BART_logml_vi)
+investigates a **log marginal-likelihood-weighted variable importance measure**,
+which extends standard BART variable inclusion proportions by incorporating
+information about the contribution of individual tree splits.
 
 ## Installation
 
@@ -123,6 +126,9 @@ GenBART also implements a **log marginal-likelihood-weighted** importance measur
 ```python
 logml_importance = model.variable_inclusion(kind="logml")
 ```
+
+The motivation and simulation study for this importance measure are documented
+in the [logML variable-importance research repository](https://github.com/PetarMatejcic/BART_logml_vi).
 
 Variable importance provides a ranking or relative measure of predictor relevance. When an explicit selected feature set is required, GenBART provides permutation-null feature selection through `BartVariableSelector`:
 
