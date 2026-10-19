@@ -461,11 +461,12 @@ class ProbitBart(BaseBART):
         Threshold-independent metrics such as ROC AUC, average precision, Brier score,
         and log loss use the posterior mean probabilities directly.
         """
-        y_true = np.asarray(y).astype(int)
+        y_true = np.asarray(y)
         if y_true.ndim != 1:
             raise ValueError("y must be a 1D array")
         if not np.all((y_true == 0) | (y_true == 1)):
             raise ValueError("y must contain only binary labels 0 and 1.")
+        y_true = y_true.astype(int)
         
         prob_draws = self._predict_prob_draws(X)
         probs = prob_draws.mean(axis=0)

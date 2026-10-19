@@ -409,3 +409,14 @@ def test_partial_dependence_returns_valid_probability_curve():
         result["grid"],
         np.linspace(X[:, 0].min(), X[:, 0].max(), 7),
     )
+
+
+def test_evaluate_rejects_nonbinary_labels():
+    X, y = _make_classification_data(n=40, p=4, seed=23)
+    model = _fit_small_model(X, y, random_state=23)
+
+    bad_y = y.astype(float)
+    bad_y[0] = 0.5
+
+    with pytest.raises(ValueError, match="binary labels 0 and 1"):
+        model.evaluate(X, bad_y)
