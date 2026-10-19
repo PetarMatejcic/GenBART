@@ -145,7 +145,7 @@ def cross_validate_reg_bart(
             if scoring == "rmse":
                 score = root_mean_squared_error(y[val_idx], pred)
             elif scoring == "mse":
-                score = mean_squared_error(y[val_idx], pred, squared=True)
+                score = mean_squared_error(y[val_idx], pred)
             else:
                 raise ValueError("scoring must be 'rmse' or 'mse'")
 

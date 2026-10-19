@@ -182,3 +182,27 @@ def test_cross_validate_probit_bart_invalid_scoring_raises():
             scoring="bad_score",
             random_state=123,
         )
+
+
+def test_cross_validate_reg_bart_mse_scoring():
+    X, y = make_regression_data()
+
+    result = cross_validate_reg_bart(
+        X,
+        y,
+        param_grid={
+            "m": [2],
+            "k": [2.0],
+            "nu": [3.0],
+            "q": [0.90],
+            "n_burn": [1],
+            "n_samples": [2],
+        },
+        cv=2,
+        scoring="mse",
+        random_state=123,
+        refit=False,
+    )
+
+    assert np.isfinite(result["best_score"])
+    assert result["best_score"] >= 0.0
