@@ -81,18 +81,24 @@ def cross_validate_reg_bart(
         Dictionary containing:
 
         - ``"best_params"``: parameter dictionary with the lowest mean validation
-        loss.
+          loss.
+
         - ``"best_score"``: mean validation loss for that configuration.
+
         - ``"best_model"``: model refitted on all observations when
-        ``refit=True``; otherwise ``None``.
+          ``refit=True``; otherwise ``None``.
+
         - ``"cv_results"``: list containing one dictionary for every parameter
-        combination.
+          combination.
 
         Each entry in ``"cv_results"`` contains:
 
         - ``"params"``: evaluated parameter combination.
+
         - ``"mean_score"``: mean validation loss across folds.
+
         - ``"std_score"``: standard deviation of validation loss across folds.
+
         - ``"fold_scores"``: individual validation-fold scores.
 
     Raises
@@ -242,18 +248,24 @@ def cross_validate_probit_bart(
         Dictionary containing:
 
         - ``"best_params"``: parameter dictionary with the highest mean validation
-        score.
+          score.
+
         - ``"best_score"``: mean validation score for that configuration.
+
         - ``"best_model"``: model refitted on all observations when
-        ``refit=True``; otherwise ``None``.
+          ``refit=True``; otherwise ``None``.
+
         - ``"cv_results"``: list containing one dictionary for every parameter
-        combination.
+          combination.
 
         Each entry in ``"cv_results"`` contains:
 
         - ``"params"``: evaluated parameter combination.
+
         - ``"mean_score"``: mean validation score across folds.
+
         - ``"std_score"``: standard deviation across folds.
+
         - ``"fold_scores"``: individual validation-fold scores.
 
     Raises

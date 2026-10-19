@@ -146,7 +146,7 @@ class BaseBART:
             - ``"n_burn"``: number of burn-in iterations.
             - ``"n_samples"``: number of retained posterior draws.
             - ``"move_distribution"``: grow, prune, change, and swap proposal
-            probabilities.
+              probabilities.
             - ``"random_state"``: random seed.
 
         Notes

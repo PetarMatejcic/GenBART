@@ -445,7 +445,7 @@ class ProbitBart(BaseBART):
             - ``"tn"``, ``"fp"``, ``"fn"``, ``"tp"``: confusion-matrix counts.
             - ``"roc_auc"``: area under the ROC curve.
             - ``"average_precision"``: area under the precision-recall curve using
-            the average-precision definition.
+              the average-precision definition.
 
         Raises
         ------
