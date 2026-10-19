@@ -351,10 +351,10 @@ class BartPredictiveSelector:
             raise ValueError("Prediction draws and y have incompatible lengths.")
 
         if self.task == "classification":
-            y_binary = y.astype(int)
-
-            if not np.all((y_binary == 0) | (y_binary == 1)):
+            if not np.all((y == 0) | (y == 1)):
                 raise ValueError("classification y must contain only 0/1 labels.")
+            
+            y_binary = y.astype(int)
 
             prediction = np.clip(pred_draws, 1e-12, 1.0 - 1e-12)
             yy = y_binary.reshape(1, -1)

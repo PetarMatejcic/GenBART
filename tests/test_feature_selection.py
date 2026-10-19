@@ -633,6 +633,36 @@ def test_bart_predictive_selector_accepts_eval_data():
     assert result.degradation_samples.shape[1] == X.shape[1]
 
 
+def test_predictive_selector_rejects_nonbinary_evaluation_labels():
+    X, y = make_classification_data()
+    y_eval = y.astype(float)
+    y_eval[0] = 0.5
+
+    selector = BartPredictiveSelector(
+        ProbitBart,
+        model_params={
+            "m": 2,
+            "n_burn": 1,
+            "n_samples": 2,
+        },
+        task="classification",
+        n_repeats=1,
+        n_permutations=1,
+        random_state=123,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="classification y must contain only 0/1 labels",
+    ):
+        selector.fit(
+            X,
+            y,
+            X_eval=X,
+            y_eval=y_eval,
+        )
+
+
 def test_selector_from_model_constructors():
     reg_model = RegBart(**small_regbart_params(), random_state=100)
     probit_model = ProbitBart(**small_probitbart_params(), random_state=101)
